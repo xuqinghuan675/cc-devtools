@@ -6,8 +6,6 @@
 > 专为非多模态模型设计（DeepSeek、GPT-4o-mini、本地模型），  
 > 模型看不到截图，但能通过文本"看懂"网页。零 API key，完全本地。
 
-![](https://placeholder.gif)
-
 ## 原理
 
 ```

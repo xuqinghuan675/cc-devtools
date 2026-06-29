@@ -6,8 +6,6 @@ Read webpages as text, modify DOM, execute JS, write files — all through chat.
 > Designed for non-multimodal models (DeepSeek, GPT-4o-mini, local LLMs)  
 > that can't "see" screenshots. Zero API keys. Fully local.
 
-![](https://placeholder.gif)
-
 ## How It Works
 
 ```

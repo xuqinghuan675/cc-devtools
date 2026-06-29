@@ -1,0 +1,4 @@
+graft cc_devtools/extension
+include LICENSE
+include README.md
+include README_CN.md

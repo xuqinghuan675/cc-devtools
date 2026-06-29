@@ -1,5 +1,5 @@
 const WS_URL = 'ws://localhost:9876';
-const ACTION_RE = /\[ACTION:(eval|dom|dom:all|text|console|network|title|url|save)\]([\s\S]*?)\[\/ACTION\]/g;
+const ACTION_RE = /\[ACTION:(eval|dom|dom:all|text|console|network|title|url|save|copy)\]([\s\S]*?)\[\/ACTION\]/g;
 
 let ws = null;
 let reconnectTimer = null;
@@ -250,6 +250,14 @@ async function executeAction(type, code) {
 
     case 'url':
       return executeInspectedWindowEval('location.href');
+
+    case 'copy':
+      try {
+        await navigator.clipboard.writeText(code);
+        return '已复制到剪贴板';
+      } catch {
+        return '复制到剪贴板失败（需要用户交互）';
+      }
 
     case 'save': {
       const nl = code.indexOf('\n');
