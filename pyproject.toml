@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cc-devtools"
+version = "0.1.0"
+description = "Claude Code in Chrome F12 DevTools"
+requires-python = ">=3.9"
+dependencies = ["websockets>=12"]
+
+[project.scripts]
+cc-devtools = "cc_devtools.server:main"
+cc-devtools-path = "cc_devtools.cli:path_cmd"
+
+[tool.setuptools.packages.find]
+include = ["cc_devtools*"]
+
+[tool.setuptools.package-data]
+"cc_devtools" = ["extension/**/*"]

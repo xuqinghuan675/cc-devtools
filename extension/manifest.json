@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Claude Code DevTools",
+  "version": "1.0.0",
+  "description": "在 F12 DevTools 中接入 Claude Code，阅览和操作网页内容",
+  "devtools_page": "devtools.html",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; connect-src ws://127.0.0.1:* ws://localhost:* http://127.0.0.1:* http://localhost:*"
+  }
+}

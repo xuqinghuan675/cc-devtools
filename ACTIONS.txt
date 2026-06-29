@@ -1,0 +1,42 @@
+Claude Code DevTools — 可用操作列表
+=====================================
+
+CC 在回复中使用以下标签来操作网页和文件，面板会自动解析执行并回传结果。
+
+[ACTION:eval]JavaScript代码[/ACTION]
+    在页面上执行 JS 并获取返回值
+    例: [ACTION:eval]document.querySelectorAll('a').length[/ACTION]
+
+[ACTION:dom]CSS选择器[/ACTION]
+    获取匹配元素的 outerHTML（仅第一个）
+    例: [ACTION:dom]#main[/ACTION]
+
+[ACTION:dom:all]CSS选择器[/ACTION]
+    获取所有匹配元素的 outerHTML
+    例: [ACTION:dom:all].item[/ACTION]
+
+[ACTION:text]CSS选择器[/ACTION]
+    获取元素的可见文本内容
+    例: [ACTION:text]h1[/ACTION]
+
+[ACTION:console][/ACTION]
+    获取最近的控制台日志（最多200条）
+
+[ACTION:network][/ACTION]
+    获取最近20条网络请求（需打开 Network 面板）
+
+[ACTION:title][/ACTION]
+    获取页面标题
+
+[ACTION:url][/ACTION]
+    获取当前页面 URL
+
+[ACTION:save]文件路径
+文件内容（从下一行开始）
+[/ACTION]
+    将内容写入磁盘文件，自动创建目录
+    路径支持相对路径（相对于 Bridge Server 工作目录）或绝对路径
+    例: [ACTION:save]D:\project\index.html
+        <!DOCTYPE html>
+        <html>...</html>
+        [/ACTION]
