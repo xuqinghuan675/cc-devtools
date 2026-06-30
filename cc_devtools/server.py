@@ -106,10 +106,21 @@ def call_cc(prompt):
         )
         if result.returncode != 0:
             raise RuntimeError(f"CC exited with code {result.returncode}: {result.stderr}")
+
+        stdout = result.stdout
+        if not stdout or not stdout.strip():
+            stderr = (result.stderr or "").strip()
+            detail = f" Stderr: {stderr}" if stderr else ""
+            raise RuntimeError(f"CC command returned no output. Check CC_DEVTOOLS_CMD and CLI authentication.{detail}")
+
         try:
-            return json.loads(result.stdout)
+            parsed = json.loads(stdout)
         except json.JSONDecodeError:
-            return {"content": result.stdout}
+            return {"content": stdout}
+
+        if not isinstance(parsed, dict):
+            raise RuntimeError(f"CC command returned JSON {type(parsed).__name__}, expected JSON object")
+        return parsed
     except subprocess.TimeoutExpired:
         raise RuntimeError("CC 响应超时 (2分钟)")
 
