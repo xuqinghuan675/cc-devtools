@@ -6,6 +6,7 @@ import vm from 'node:vm';
 function loadPanelContext() {
   const source = readFileSync('cc_devtools/extension/panel/panel.js', 'utf8');
   const definitionsOnly = source.split('\nsendBtn.addEventListener')[0];
+  const sentMessages = [];
   const emptyEl = {
     addEventListener() {},
     appendChild() {},
@@ -29,9 +30,11 @@ function loadPanelContext() {
     setTimeout() {},
     window: {},
     WebSocket: { OPEN: 1 },
+    __sentMessages: sentMessages,
   };
   vm.createContext(context);
   vm.runInContext(definitionsOnly, context);
+  context.send = (msg) => sentMessages.push(msg);
   return context;
 }
 
@@ -84,4 +87,15 @@ test('interaction actions serialize selectors inside inspected scripts', () => {
   assert.ok(script.includes('document.querySelector("button[data-id=\\"a\'b\\"]")'));
   assert.ok(script.includes('button[data-id=\\"a\'b\\"]'));
   assert.ok(!script.includes("return '已点击: button"));
+});
+
+test('executeActions stops after five automatic action result rounds', async () => {
+  const context = loadPanelContext();
+  context.executeAction = async () => 'ok';
+
+  for (let i = 0; i < 6; i++) {
+    await context.executeActions([{ type: 'title', code: '', placeholder: 'missing' }]);
+  }
+
+  assert.equal(context.__sentMessages.length, 5);
 });

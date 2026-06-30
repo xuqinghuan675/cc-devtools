@@ -3,7 +3,9 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+import secrets
 import subprocess
+from urllib.parse import parse_qs, urlsplit
 
 import websockets
 from websockets.asyncio.server import serve
@@ -24,6 +26,8 @@ CC_CMD = os.environ.get("CC_DEVTOOLS_CMD", "cc")
 IS_WINDOWS = os.name == "nt"
 WRITE_ROOT = get_write_root()
 CLI_LOG_PATH = Path(os.environ.get("CC_DEVTOOLS_LOG") or (Path.cwd() / "cc-devtools-bridge.log"))
+DEFAULT_ALLOWED_ORIGIN_PREFIXES = ("chrome-extension://",)
+TRUTHY_VALUES = {"1", "true", "yes", "on"}
 
 SYSTEM_PROMPT = """你是一个网页助手，通过 Chrome DevTools 扩展与用户沟通。你可以直接操作和检查当前网页。
 
@@ -65,6 +69,103 @@ def _format_project_context(project_context):
     if isinstance(project_context, str):
         return project_context[:6000]
     return json.dumps(project_context, ensure_ascii=False, indent=2)[:6000]
+
+
+def _truthy_env(name):
+    return os.environ.get(name, "").strip().lower() in TRUTHY_VALUES
+
+
+def _split_env_list(name):
+    return tuple(part.strip() for part in os.environ.get(name, "").split(",") if part.strip())
+
+
+def _matches_allowed_origin(origin, allowed):
+    for pattern in allowed:
+        if pattern.endswith("*") and origin.startswith(pattern[:-1]):
+            return True
+        if origin == pattern:
+            return True
+    return False
+
+
+def _origin_allowed(origin):
+    origin = (origin or "").strip()
+    if not origin:
+        return True
+
+    configured = _split_env_list("CC_DEVTOOLS_ALLOWED_ORIGINS")
+    if configured:
+        return _matches_allowed_origin(origin, configured)
+
+    return origin.startswith(DEFAULT_ALLOWED_ORIGIN_PREFIXES)
+
+
+def _token_authorized(token):
+    expected = os.environ.get("CC_DEVTOOLS_TOKEN", "").strip()
+    if not expected:
+        return True
+    return secrets.compare_digest(str(token or ""), expected)
+
+
+def _file_write_enabled():
+    return _truthy_env("CC_DEVTOOLS_ENABLE_WRITE")
+
+
+def _bypass_permissions_enabled():
+    return _truthy_env("CC_DEVTOOLS_BYPASS")
+
+
+def _request_headers(ws):
+    request = getattr(ws, "request", None)
+    headers = getattr(request, "headers", None)
+    if headers is None:
+        headers = getattr(ws, "request_headers", None)
+    return headers
+
+
+def _header_value(headers, name):
+    if not headers:
+        return ""
+    try:
+        return headers.get(name, "")
+    except AttributeError:
+        return ""
+
+
+def _request_path(ws):
+    request = getattr(ws, "request", None)
+    return getattr(request, "path", None) or getattr(ws, "path", "") or ""
+
+
+def _request_origin(ws):
+    return _header_value(_request_headers(ws), "Origin")
+
+
+def _request_token(ws):
+    query = parse_qs(urlsplit(_request_path(ws)).query)
+    token = (query.get("token") or [""])[0]
+    if token:
+        return token
+
+    headers = _request_headers(ws)
+    header_token = _header_value(headers, "X-CC-DevTools-Token")
+    if header_token:
+        return header_token
+
+    auth = _header_value(headers, "Authorization")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+
+    return ""
+
+
+def _connection_authorization_error(ws):
+    origin = _request_origin(ws)
+    if not _origin_allowed(origin):
+        return f"WebSocket origin not allowed: {origin}"
+    if not _token_authorized(_request_token(ws)):
+        return "invalid or missing CC_DEVTOOLS_TOKEN"
+    return ""
 
 
 def build_prompt(messages, page_context, workflow=None, project_context=None):
@@ -153,7 +254,10 @@ def _response_content(response):
 
 
 def call_cc(prompt):
-    command = [CC_CMD, "-p", "--permission-mode", "bypassPermissions", "--output-format", "json"]
+    command = [CC_CMD, "-p"]
+    if _bypass_permissions_enabled():
+        command.extend(["--permission-mode", "bypassPermissions"])
+    command.extend(["--output-format", "json"])
     try:
         result = subprocess.run(
             command,
@@ -203,6 +307,11 @@ def call_cc(prompt):
 
 
 async def handle_connection(ws):
+    auth_error = _connection_authorization_error(ws)
+    if auth_error:
+        await ws.close(code=1008, reason=auth_error)
+        return
+
     conversation = []
     async for raw in ws:
         try:
@@ -239,6 +348,8 @@ async def handle_connection(ws):
 
             elif msg.get("type") == "write_file":
                 try:
+                    if not _file_write_enabled():
+                        raise PermissionError("file writing is disabled; set CC_DEVTOOLS_ENABLE_WRITE=1 to enable it")
                     file_path = resolve_write_path(msg["path"], WRITE_ROOT)
                     file_path.parent.mkdir(parents=True, exist_ok=True)
                     file_path.write_text(msg["content"], encoding="utf-8")
@@ -248,7 +359,7 @@ async def handle_connection(ws):
                         "path": str(file_path),
                         "success": True,
                     }))
-                except (OSError, ValueError) as e:
+                except (OSError, PermissionError, ValueError) as e:
                     await ws.send(json.dumps({
                         "type": "write_result",
                         "id": msg["id"],
@@ -323,6 +434,12 @@ def main():
             print(f"文件写入目录: {WRITE_ROOT}")
             print(f"CLI 命令: {CC_CMD}")
             print(f"日志文件: {CLI_LOG_PATH}")
+            if os.environ.get("CC_DEVTOOLS_TOKEN", "").strip():
+                print("WebSocket token 鉴权: 已启用")
+            else:
+                print("WebSocket token 鉴权: 未启用，设置 CC_DEVTOOLS_TOKEN 可启用")
+            print(f"文件写入: {'已启用' if _file_write_enabled() else '默认禁用，设置 CC_DEVTOOLS_ENABLE_WRITE=1 可启用'}")
+            print(f"CLI bypassPermissions: {'已启用' if _bypass_permissions_enabled() else '默认禁用'}")
             print("按 Ctrl+C 停止")
             await asyncio.get_running_loop().create_future()
 

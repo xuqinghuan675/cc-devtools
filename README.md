@@ -64,7 +64,7 @@ Chrome F12 Panel
 
 The panel exposes DevTools actions:
 DOM, text, eval, console, network, page click/input/press, project scan,
-file list/read, and safe local writes.
+file list/read, and opt-in local writes.
 ```
 
 cc-devtools does not require its own API key. It starts your configured CLI AI command and sends it structured page context plus workflow instructions.
@@ -122,9 +122,9 @@ The workflow prompts live in [`cc_devtools/skills/frontend-devtools-workflows`](
 | `[ACTION:project:scan][/ACTION]` | Summarize local frontend framework, bundler, scripts, configs, key directories, data/service candidates, dependencies, and entry files |
 | `[ACTION:file:list]pattern[/ACTION]` | List local project files under the bridge write root |
 | `[ACTION:file:read]path[/ACTION]` | Read a local project file under the bridge write root |
-| `[ACTION:save]path\ncontent[/ACTION]` | Write a local file under the bridge write root |
+| `[ACTION:save]path\ncontent[/ACTION]` | Write a local file under the bridge write root when `CC_DEVTOOLS_ENABLE_WRITE=1` is set |
 
-File actions are restricted to `CC_DEVTOOLS_WRITE_ROOT`, or to the directory where you started the bridge.
+File actions are restricted to `CC_DEVTOOLS_WRITE_ROOT`, or to the directory where you started the bridge. Sensitive files such as `.env`, private key files, `.npmrc`, and `.git/config` are rejected even when they are under the write root.
 
 ## Install From Source
 
@@ -149,7 +149,11 @@ node server.js
 |---|---|---|
 | `CC_DEVTOOLS_CMD` | `cc` | CLI AI command to run |
 | `CC_DEVTOOLS_PORT` | `9876` | Local WebSocket port |
-| `CC_DEVTOOLS_WRITE_ROOT` | current working directory | Directory where file actions may read/write |
+| `CC_DEVTOOLS_WRITE_ROOT` | current working directory | Directory where file actions may read and, when enabled, write |
+| `CC_DEVTOOLS_ENABLE_WRITE` | unset | Set to `1` to enable `[ACTION:save]` / `write_file` |
+| `CC_DEVTOOLS_TOKEN` | unset | Optional shared token required by the bridge when configured |
+| `CC_DEVTOOLS_ALLOWED_ORIGINS` | `chrome-extension://*` behavior | Optional comma-separated exact origins or `prefix*` patterns |
+| `CC_DEVTOOLS_BYPASS` | unset | Set to `1` only if you explicitly want `--permission-mode bypassPermissions` |
 
 ## Safety Model
 
@@ -158,7 +162,11 @@ node server.js
 - `[ACTION:eval]` runs JavaScript in the inspected page.
 - Page interaction actions can click, type, or press keys on the inspected page.
 - `[ACTION:project:scan]` reads local project metadata under the bridge write root.
-- File actions cannot leave the configured write root.
+- File actions cannot leave the configured write root, and sensitive files are rejected inside the root.
+- File writes are disabled by default; enable them only for disposable or trusted project roots.
+- Browser WebSocket clients are accepted from Chrome extension origins by default; set `CC_DEVTOOLS_TOKEN` for an additional shared-token check.
+- Claude Code `bypassPermissions` is disabled by default; opt in with `CC_DEVTOOLS_BYPASS=1` only when you understand the risk.
+- Automatic action-result loops stop after five rounds per user message.
 - The DevTools panel escapes ordinary assistant HTML before rendering action blocks.
 
 Read the full policy in [SECURITY.md](SECURITY.md).

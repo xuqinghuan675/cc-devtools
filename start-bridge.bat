@@ -17,6 +17,16 @@ echo   ==========================================
 echo   ws://localhost:%CC_DEVTOOLS_PORT%
 echo   Write root: %CC_DEVTOOLS_WRITE_ROOT%
 echo   Log file: %CC_DEVTOOLS_LOG%
+if defined CC_DEVTOOLS_ENABLE_WRITE (
+    echo   File writes: enabled by CC_DEVTOOLS_ENABLE_WRITE=%CC_DEVTOOLS_ENABLE_WRITE%
+) else (
+    echo   File writes: disabled by default
+)
+if defined CC_DEVTOOLS_TOKEN (
+    echo   WebSocket token: enabled
+) else (
+    echo   WebSocket token: not configured
+)
 echo.
 
 echo   [1/4] Detect Python
@@ -84,7 +94,7 @@ cd /d "%ROOT%"
 echo.
 echo   Keep this window open while using the F12 panel.
 echo   If chat fails while the panel is connected, run this in a terminal:
-echo   %CC_DEVTOOLS_CMD% -p --permission-mode bypassPermissions --output-format json "Reply OK"
+echo   %CC_DEVTOOLS_CMD% -p --output-format json "Reply OK"
 echo.
 
 %PYTHON% -m cc_devtools.server

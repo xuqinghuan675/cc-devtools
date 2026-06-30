@@ -128,6 +128,10 @@ button, select, textarea { font: inherit; }
   color: var(--soft);
 }
 
+.locale-zh #page-info:empty::before {
+  content: "尚未读取页面标题";
+}
+
 #workflow-control {
   display: grid;
   gap: 3px;

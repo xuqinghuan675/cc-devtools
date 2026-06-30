@@ -10,6 +10,8 @@
 - Add a bundled `examples/country-selector-loop` demo for page -> project scan -> file write -> browser verification
 - Add `cc-devtools-demo --live` to start the Frontend Loop demo page and bridge with one command
 - Replace the Windows installer with a two-step flow that installs the Python bridge, clears stale port `9876` listeners, starts the bridge, and opens Chrome extension setup
+- Localize DevTools panel controls for Chinese browsers
+- Accept absolute file-list patterns inside the configured write root
 - Automatically attach local project context to Frontend Loop chat payloads
 - Polish the DevTools panel and bundled demo UI for clearer onboarding and recordings
 - Escape ordinary assistant HTML before rendering in the DevTools panel

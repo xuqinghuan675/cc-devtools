@@ -63,7 +63,7 @@ Chrome F12 面板
          <-> CLI AI 命令，例如 cc -p
 
 面板提供 DevTools 动作：
-DOM、text、eval、console、network、页面 click/input/press、project scan、file list/read，以及受限制的本地写入。
+DOM、text、eval、console、network、页面 click/input/press、project scan、file list/read，以及需要显式开启的本地写入。
 ```
 
 cc-devtools 自身不需要 API key。它启动你配置的 CLI AI 命令，并发送结构化页面上下文和工作流提示。
@@ -121,9 +121,9 @@ cc-devtools-path
 | `[ACTION:project:scan][/ACTION]` | 汇总本地前端框架、bundler、scripts、配置文件、关键目录、数据/service 候选文件、依赖和入口文件 |
 | `[ACTION:file:list]pattern[/ACTION]` | 列出 bridge 写入根目录内的本地项目文件 |
 | `[ACTION:file:read]path[/ACTION]` | 读取 bridge 写入根目录内的本地项目文件 |
-| `[ACTION:save]path\ncontent[/ACTION]` | 写入 bridge 写入根目录内的本地文件 |
+| `[ACTION:save]path\ncontent[/ACTION]` | 设置 `CC_DEVTOOLS_ENABLE_WRITE=1` 后，写入 bridge 写入根目录内的本地文件 |
 
-文件动作只能访问 `CC_DEVTOOLS_WRITE_ROOT`，或启动 bridge 时所在的目录。
+文件动作只能访问 `CC_DEVTOOLS_WRITE_ROOT`，或启动 bridge 时所在的目录。即使在允许目录内，`.env`、私钥文件、`.npmrc`、`.git/config` 等敏感文件也会被拒绝。
 
 ## 从源码安装
 
@@ -148,7 +148,11 @@ node server.js
 |---|---|---|
 | `CC_DEVTOOLS_CMD` | `cc` | 要运行的 CLI AI 命令 |
 | `CC_DEVTOOLS_PORT` | `9876` | 本地 WebSocket 端口 |
-| `CC_DEVTOOLS_WRITE_ROOT` | 当前工作目录 | 文件动作允许读写的目录 |
+| `CC_DEVTOOLS_WRITE_ROOT` | 当前工作目录 | 文件动作允许读取，以及显式开启后写入的目录 |
+| `CC_DEVTOOLS_ENABLE_WRITE` | 未设置 | 设置为 `1` 后启用 `[ACTION:save]` / `write_file` |
+| `CC_DEVTOOLS_TOKEN` | 未设置 | 可选共享 token；配置后 bridge 会强制校验 |
+| `CC_DEVTOOLS_ALLOWED_ORIGINS` | 默认接受 `chrome-extension://` 来源 | 可选逗号分隔的精确 Origin 或 `prefix*` 模式 |
+| `CC_DEVTOOLS_BYPASS` | 未设置 | 仅在你明确需要 `--permission-mode bypassPermissions` 时设置为 `1` |
 
 ## 安全模型
 
@@ -157,7 +161,11 @@ node server.js
 - `[ACTION:eval]` 会在当前 inspected page 中执行 JavaScript。
 - 页面交互动作可以在当前页面点击、输入或按键。
 - `[ACTION:project:scan]` 会读取 bridge 写入根目录内的本地项目元数据。
-- 文件动作不能离开配置的写入根目录。
+- 文件动作不能离开配置的写入根目录，根目录内的敏感文件也会被拒绝。
+- 文件写入默认关闭；只建议在一次性或可信项目根目录中显式开启。
+- 浏览器 WebSocket 客户端默认只接受 Chrome 扩展来源；设置 `CC_DEVTOOLS_TOKEN` 后会额外校验共享 token。
+- Claude Code `bypassPermissions` 默认关闭；只有理解风险后才用 `CC_DEVTOOLS_BYPASS=1` 显式开启。
+- 每条用户消息最多自动执行 5 轮 action-result 闭环。
 - DevTools 面板会在渲染普通 AI 回复前转义 HTML，同时保留合法 action block。
 
 完整安全说明见 [SECURITY.md](SECURITY.md)。

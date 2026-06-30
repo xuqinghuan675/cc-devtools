@@ -26,3 +26,6 @@ Desktop.ini
 # Build artifacts
 *.log
 *.tmp
+
+# Local action/debug artifacts
+gemini-log.json

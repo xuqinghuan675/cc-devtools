@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'fs';
-import { join, relative, sep } from 'path';
+import { isAbsolute, join, relative, resolve, sep } from 'path';
 
 import { resolveWritePath } from './safety.js';
 
@@ -20,8 +20,22 @@ function matchesPattern(relPath, pattern) {
   return rel.includes(query.replaceAll('*', ''));
 }
 
+function normalizePattern(root, pattern) {
+  const query = (pattern || '**/*').trim() || '**/*';
+  if (!isAbsolute(query)) return query;
+
+  const rootAbs = resolve(root);
+  const queryAbs = resolve(query);
+  const rel = relative(rootAbs, queryAbs).split(sep).join('/');
+  if (rel === '..' || rel.startsWith('../') || isAbsolute(rel)) {
+    throw new Error('file list pattern is outside allowed root');
+  }
+  return rel || '**/*';
+}
+
 export function listFiles(root, pattern = '**/*') {
   const results = [];
+  const query = normalizePattern(root, pattern);
 
   function walk(dir) {
     if (results.length >= MAX_FILES) return;
@@ -31,7 +45,7 @@ export function listFiles(root, pattern = '**/*') {
       if (isExcluded(rel)) continue;
       if (entry.isDirectory()) {
         walk(abs);
-      } else if (entry.isFile() && matchesPattern(rel, pattern)) {
+      } else if (entry.isFile() && matchesPattern(rel, query)) {
         results.push(rel);
       }
       if (results.length >= MAX_FILES) return;

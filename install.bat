@@ -108,10 +108,20 @@ echo echo   ws://localhost:%PORT%
 echo echo   Write root: %%CC_DEVTOOLS_WRITE_ROOT%%
 echo echo   CLI AI: %%CC_DEVTOOLS_CMD%%
 echo echo   Log file: %%CC_DEVTOOLS_LOG%%
+echo if defined CC_DEVTOOLS_ENABLE_WRITE ^(
+echo     echo   File writes: enabled by CC_DEVTOOLS_ENABLE_WRITE=%%CC_DEVTOOLS_ENABLE_WRITE%%
+echo ^) else ^(
+echo     echo   File writes: disabled by default
+echo ^)
+echo if defined CC_DEVTOOLS_TOKEN ^(
+echo     echo   WebSocket token: enabled
+echo ^) else ^(
+echo     echo   WebSocket token: not configured
+echo ^)
 echo echo.
 echo echo   Keep this window open while using the F12 panel.
 echo echo   If chat fails while connected, run:
-echo echo   %%CC_DEVTOOLS_CMD%% -p --permission-mode bypassPermissions --output-format json "Reply OK"
+echo echo   %%CC_DEVTOOLS_CMD%% -p --output-format json "Reply OK"
 echo echo.
 echo rem cc-devtools
 echo %PYTHON% -m cc_devtools.server
@@ -147,6 +157,7 @@ echo   After this, double-click start-bridge.bat only if you restart Windows
 echo   or close the bridge window.
 echo   Local file actions are limited to:
 echo     %WRITE_ROOT%
+echo   File writes are disabled unless CC_DEVTOOLS_ENABLE_WRITE=1 is set.
 echo   Bridge log:
 echo     %LOG_PATH%
 echo.

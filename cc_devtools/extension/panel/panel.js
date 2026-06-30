@@ -1,5 +1,7 @@
 const WS_URL = 'ws://localhost:9876';
 const ACTION_RE = /\[ACTION:(eval|dom|dom:all|text|console|network|title|url|save|copy|click|input|press|file:list|file:read|project:scan)\]([\s\S]*?)\[\/ACTION\]/g;
+const MAX_ACTION_ROUNDS = 5;
+const TOKEN_STORAGE_KEYS = ['CC_DEVTOOLS_TOKEN', 'cc_devtools_token'];
 
 let ws = null;
 let reconnectTimer = null;
@@ -7,6 +9,7 @@ let thinkingEl = null;
 let consoleInjected = false;
 let pendingSaves = {};
 let pendingFileActions = {};
+let actionRoundCount = 0;
 
 const $ = (s) => document.querySelector(s);
 const messagesEl = $('#messages');
@@ -20,24 +23,157 @@ const helpPanel = $('#help-panel');
 const pageContextBtn = $('#page-context-btn');
 const workflowSelectEl = $('#workflow-select');
 
+const UI_TEXT = {
+  en: {
+    action: 'Action',
+    actionLimitReached: 'Automatic action limit reached. Send a new message to continue.',
+    collect: 'Collect',
+    collectTitle: 'Collect current page context',
+    consoleCaptureStarted: 'Console capture started (last 200 entries)',
+    copied: 'Copied to clipboard',
+    copyFailed: 'Copy failed. User interaction may be required.',
+    errorPrefix: 'Error: ',
+    fileActionDisconnected: 'File action failed: Bridge Server is not connected',
+    fileActionFailed: 'File action failed: ',
+    fileActionTimedOut: 'File action timed out',
+    helpTitle: 'Action Reference',
+    helpTitleAttr: 'Show action reference',
+    inputPlaceholder: 'Ask the agent to inspect, patch, click, or verify...',
+    notConnected: 'Not connected to Bridge Server. Run start-bridge.bat or cc-devtools first.',
+    pageContextCollected: 'Page context collected',
+    projectContextScanned: 'Project context scanned',
+    reset: 'Reset',
+    resetDone: 'Conversation reset',
+    resetTitle: 'Reset conversation',
+    running: 'Running...',
+    saveDisconnected: 'Save failed: Bridge Server is not connected',
+    send: 'Send',
+    statusConnected: 'Connected',
+    statusConnecting: 'Connecting...',
+    statusDisconnected: 'Disconnected',
+    statusReconnecting: 'Disconnected, reconnecting...',
+    workflow: 'Workflow',
+    workflowTitle: 'Choose a DevTools workflow',
+    workflows: {
+      inspect: 'Inspect',
+      debug: 'Debug',
+      selector: 'Selector',
+      qa: 'QA',
+      'local-data-patch': 'Local Data Patch',
+      'frontend-loop': 'Frontend Loop',
+    },
+  },
+  zh: {
+    action: '动作',
+    actionLimitReached: '已达到自动动作轮数上限。发送新消息后可继续。',
+    collect: '收集',
+    collectTitle: '收集当前页面上下文',
+    consoleCaptureStarted: '已开始捕获控制台日志（最近 200 条）',
+    copied: '已复制到剪贴板',
+    copyFailed: '复制失败，可能需要用户交互。',
+    errorPrefix: '错误：',
+    fileActionDisconnected: '文件动作失败：Bridge Server 未连接',
+    fileActionFailed: '文件动作失败：',
+    fileActionTimedOut: '文件动作超时',
+    helpTitle: '动作参考',
+    helpTitleAttr: '显示动作参考',
+    inputPlaceholder: '让 agent 检查、修改、点击或验证...',
+    notConnected: '未连接 Bridge Server。请先运行 start-bridge.bat 或 cc-devtools。',
+    pageContextCollected: '已收集页面上下文',
+    projectContextScanned: '已扫描本地项目上下文',
+    reset: '重置',
+    resetDone: '对话已重置',
+    resetTitle: '重置对话',
+    running: '运行中...',
+    saveDisconnected: '保存失败：Bridge Server 未连接',
+    send: '发送',
+    statusConnected: '已连接',
+    statusConnecting: '连接中...',
+    statusDisconnected: '未连接',
+    statusReconnecting: '已断开，正在重连...',
+    workflow: '工作流',
+    workflowTitle: '选择 DevTools 工作流',
+    workflows: {
+      inspect: '检查',
+      debug: '调试',
+      selector: '选择器',
+      qa: '验收',
+      'local-data-patch': '本地数据修改',
+      'frontend-loop': '前端闭环',
+    },
+  },
+};
+
+function getUiLocale() {
+  const lang = ((navigator && (navigator.language || navigator.userLanguage)) || '').toLowerCase();
+  return lang.startsWith('zh') ? 'zh' : 'en';
+}
+
+function t(key) {
+  const locale = getUiLocale();
+  return UI_TEXT[locale][key] || UI_TEXT.en[key] || key;
+}
+
+function workflowLabel(value) {
+  const locale = getUiLocale();
+  return UI_TEXT[locale].workflows[value] || UI_TEXT.en.workflows[value] || value;
+}
+
+function applyLocale() {
+  const locale = getUiLocale();
+  if (document.documentElement) {
+    document.documentElement.lang = locale === 'zh' ? 'zh-CN' : 'en';
+    if (document.documentElement.classList) {
+      document.documentElement.classList.toggle('locale-zh', locale === 'zh');
+    }
+  }
+
+  const workflowLabelEl = document.querySelector('#workflow-control span');
+  if (workflowLabelEl) workflowLabelEl.textContent = t('workflow');
+  if (workflowSelectEl) {
+    workflowSelectEl.title = t('workflowTitle');
+    if (workflowSelectEl.options) {
+      Array.from(workflowSelectEl.options).forEach((option) => {
+        option.textContent = workflowLabel(option.value);
+      });
+    }
+  }
+  if (pageContextBtn) {
+    pageContextBtn.textContent = t('collect');
+    pageContextBtn.title = t('collectTitle');
+  }
+  if (helpBtn) helpBtn.title = t('helpTitleAttr');
+  if (resetBtn) {
+    resetBtn.textContent = t('reset');
+    resetBtn.title = t('resetTitle');
+  }
+  const helpTitleEl = document.querySelector('.help-title');
+  if (helpTitleEl) helpTitleEl.textContent = t('helpTitle');
+  if (inputEl) inputEl.placeholder = t('inputPlaceholder');
+  if (sendBtn) sendBtn.textContent = t('send');
+  if (statusEl && statusEl.textContent === 'Disconnected') {
+    statusEl.textContent = t('statusDisconnected');
+  }
+}
+
 function connect() {
   if (ws && ws.readyState === WebSocket.OPEN) return;
   clearReconnect();
 
-  statusEl.textContent = 'Connecting...';
+  statusEl.textContent = t('statusConnecting');
   statusEl.className = 'status-disconnected';
 
-  ws = new WebSocket(WS_URL);
+  ws = new WebSocket(buildWebSocketUrl());
 
   ws.onopen = () => {
-    statusEl.textContent = 'Connected';
+    statusEl.textContent = t('statusConnected');
     statusEl.className = 'status-connected';
     clearReconnect();
     updatePageInfo();
   };
 
   ws.onclose = () => {
-    statusEl.textContent = 'Disconnected, reconnecting...';
+    statusEl.textContent = t('statusReconnecting');
     statusEl.className = 'status-disconnected';
     scheduleReconnect();
   };
@@ -70,6 +206,31 @@ function connect() {
   };
 }
 
+function getBridgeToken() {
+  const storage = (typeof localStorage !== 'undefined' && localStorage)
+    || (typeof window !== 'undefined' && window.localStorage);
+  if (!storage) return '';
+
+  for (const key of TOKEN_STORAGE_KEYS) {
+    try {
+      const token = storage.getItem(key);
+      if (token) return token;
+    } catch {
+      return '';
+    }
+  }
+
+  return '';
+}
+
+function buildWebSocketUrl() {
+  const token = getBridgeToken();
+  if (!token) return WS_URL;
+
+  const separator = WS_URL.includes('?') ? '&' : '?';
+  return `${WS_URL}${separator}token=${encodeURIComponent(token)}`;
+}
+
 function scheduleReconnect() {
   clearReconnect();
   reconnectTimer = setTimeout(connect, 2000);
@@ -81,7 +242,7 @@ function clearReconnect() {
 
 async function send(msg) {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
-    addSystemMessage('Not connected to Bridge Server. Run start-bridge.bat or cc-devtools first.');
+    addSystemMessage(t('notConnected'));
     return;
   }
 
@@ -89,6 +250,7 @@ async function send(msg) {
   if (!content && !msg.isActionResult) return;
 
   if (!msg.isActionResult) {
+    actionRoundCount = 0;
     addUserMessage(content);
     inputEl.value = '';
     sendBtn.disabled = true;
@@ -186,7 +348,7 @@ function collectPageContext(options = {}) {
         window.__cc_bodyText = result.bodyText;
         window.__cc_dom = result.dom;
         pageInfoEl.textContent = result.title || result.url || '';
-        if (!options.quiet) addSystemMessage('Page context collected');
+        if (!options.quiet) addSystemMessage(t('pageContextCollected'));
       }
       resolve(result || null);
     });
@@ -201,7 +363,7 @@ async function collectProjectContext(options = {}) {
   const normalized = normalizeProjectContext(result);
   if (normalized) {
     window.__cc_projectContext = normalized;
-    if (!options.quiet) addSystemMessage('Project context scanned');
+    if (!options.quiet) addSystemMessage(t('projectContextScanned'));
   }
   return window.__cc_projectContext || null;
 }
@@ -246,7 +408,7 @@ function injectConsoleInterceptor() {
 
   chrome.devtools.inspectedWindow.eval(code, (result, isException) => {
     if (!isException) {
-      addSystemMessage('Console capture started (last 200 entries)');
+      addSystemMessage(t('consoleCaptureStarted'));
     }
   });
 }
@@ -311,9 +473,9 @@ async function executeAction(type, code) {
     case 'copy':
       try {
         await navigator.clipboard.writeText(code);
-        return 'Copied to clipboard';
+        return t('copied');
       } catch {
-        return 'Copy failed. User interaction may be required.';
+        return t('copyFailed');
       }
 
     case 'save': {
@@ -408,7 +570,7 @@ function executeInspectedWindowEval(code) {
 function executeFileAction(type, payload, timeoutMs = 30000) {
   return new Promise((resolve) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      resolve('File action failed: Bridge Server is not connected');
+      resolve(t('fileActionDisconnected'));
       return;
     }
     const id = 'file_' + Date.now() + '_' + Math.random().toString(16).slice(2);
@@ -416,14 +578,14 @@ function executeFileAction(type, payload, timeoutMs = 30000) {
       if (msg.success) {
         resolve(msg.result || '');
       } else {
-        resolve('File action failed: ' + msg.error);
+        resolve(t('fileActionFailed') + msg.error);
       }
     };
     ws.send(JSON.stringify({ type, id, ...payload }));
     setTimeout(() => {
       if (pendingFileActions[id]) {
         delete pendingFileActions[id];
-        resolve('File action timed out');
+        resolve(t('fileActionTimedOut'));
       }
     }, timeoutMs);
   });
@@ -432,7 +594,7 @@ function executeFileAction(type, payload, timeoutMs = 30000) {
 function executeSaveFile(filePath, fileContent) {
   return new Promise((resolve) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      resolve('Save failed: Bridge Server is not connected');
+      resolve(t('saveDisconnected'));
       return;
     }
     const id = 'save_' + Date.now();
@@ -487,7 +649,7 @@ function parseActions(content) {
     const code = match[2];
     const placeholder = `__ACTION_RESULT_${actions.length}__`;
     actions.push({ type, code, placeholder });
-    htmlParts.push(`<div class="action-block"><div class="action-label">Action ${type}: ${escapeHtml(code.substring(0, 80))}</div><span id="${placeholder}">Running...</span></div>`);
+    htmlParts.push(`<div class="action-block"><div class="action-label">${t('action')} ${type}: ${escapeHtml(code.substring(0, 80))}</div><span id="${placeholder}">${t('running')}</span></div>`);
     lastIndex = actionRe.lastIndex;
   }
 
@@ -505,7 +667,20 @@ function formatMessageText(text) {
 
 async function executeActions(actions) {
   if (actions.length === 0) return;
+  if (actionRoundCount >= MAX_ACTION_ROUNDS) {
+    const message = t('actionLimitReached');
+    for (const a of actions) {
+      const el = document.getElementById(a.placeholder);
+      if (el) {
+        el.textContent = message;
+        el.classList.add('action-result');
+      }
+    }
+    addSystemMessage(message);
+    return;
+  }
 
+  actionRoundCount += 1;
   const actionResults = {};
   for (let i = 0; i < actions.length; i++) {
     const a = actions[i];
@@ -544,7 +719,7 @@ function addSystemMessage(text) {
 function renderError(text) {
   const div = document.createElement('div');
   div.className = 'message message-error';
-  div.textContent = 'Error: ' + text;
+  div.textContent = t('errorPrefix') + text;
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
@@ -569,6 +744,8 @@ function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+applyLocale();
+
 sendBtn.addEventListener('click', () => send({ content: inputEl.value.trim() }));
 
 inputEl.addEventListener('keydown', (e) => {
@@ -583,11 +760,12 @@ inputEl.addEventListener('input', () => {
 });
 
 resetBtn.addEventListener('click', () => {
+  actionRoundCount = 0;
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'reset' }));
   }
   messagesEl.innerHTML = '';
-  addSystemMessage('Conversation reset');
+  addSystemMessage(t('resetDone'));
 });
 
 helpBtn.addEventListener('click', () => {
@@ -611,7 +789,7 @@ if (chrome.devtools.network && chrome.devtools.network.onNavigated) {
   });
 }
 
-connect();
 sendBtn.disabled = true;
+connect();
 injectConsoleInterceptor();
 updatePageInfo();

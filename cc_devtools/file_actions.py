@@ -16,9 +16,21 @@ def _is_excluded(path):
     return any(part in EXCLUDED_DIRS or part.endswith(".egg-info") for part in path.parts)
 
 
+def _normalize_pattern(base, pattern):
+    query = (pattern or "**/*").strip() or "**/*"
+    query_path = Path(query)
+    if query_path.is_absolute():
+        try:
+            query = query_path.resolve().relative_to(base).as_posix()
+        except ValueError as e:
+            raise ValueError("file list pattern is outside allowed root") from e
+        return query or "**/*"
+    return query
+
+
 def list_files(root, pattern="**/*"):
     base = Path(root).resolve()
-    query = (pattern or "**/*").strip() or "**/*"
+    query = _normalize_pattern(base, pattern)
     simple_query = "/" not in query and "\\" not in query
     if query in {"*", "*.*"}:
         simple_query = False

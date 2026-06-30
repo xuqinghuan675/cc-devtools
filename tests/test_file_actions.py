@@ -45,12 +45,30 @@ class FileActionTests(unittest.TestCase):
 
             self.assertEqual(files, ["package.json"])
 
+    def test_list_files_accepts_absolute_pattern_inside_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "src").mkdir()
+            (root / "src" / "app.py").write_text("", encoding="utf-8")
+
+            files = list_files(root, str(root / "**" / "*.py"))
+
+            self.assertEqual(files, ["src/app.py"])
+
     def test_read_file_rejects_outside_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
 
             with self.assertRaises(ValueError):
                 read_file("../outside.txt", root)
+
+    def test_read_file_rejects_sensitive_file_inside_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".env").write_text("TOKEN=secret", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "sensitive"):
+                read_file(".env", root)
 
 
 if __name__ == "__main__":

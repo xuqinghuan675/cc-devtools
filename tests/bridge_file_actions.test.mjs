@@ -32,6 +32,14 @@ test('listFiles matches case-insensitive simple globs', () => {
   assert.deepEqual(listFiles(root, '*countr*'), ['src/CountrySelect.tsx']);
 });
 
+test('listFiles accepts absolute patterns inside root', () => {
+  const root = mkdtempSync(join(tmpdir(), 'cc-devtools-'));
+  mkdirSync(join(root, 'src'));
+  writeFileSync(join(root, 'src', 'app.py'), '');
+
+  assert.deepEqual(listFiles(root, join(root, '**', '*.py')), ['src/app.py']);
+});
+
 test('readFileInsideRoot rejects parent traversal', () => {
   const root = mkdtempSync(join(tmpdir(), 'cc-devtools-'));
 

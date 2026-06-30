@@ -34,6 +34,23 @@ class ResolveWritePathTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 resolve_write_path("   ", Path(tmp))
 
+    def test_dotenv_file_is_rejected_inside_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "sensitive"):
+                resolve_write_path(".env", Path(tmp))
+
+    def test_private_key_file_is_rejected_inside_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            with self.assertRaisesRegex(ValueError, "sensitive"):
+                resolve_write_path(root / "keys" / "id_ed25519", root)
+
+    def test_git_config_is_rejected_inside_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "sensitive"):
+                resolve_write_path(".git/config", Path(tmp))
+
 
 if __name__ == "__main__":
     unittest.main()
