@@ -35,7 +35,12 @@ echo.
 if not exist "%BRIDGE_DIR%" mkdir "%BRIDGE_DIR%"
 
 copy /y "%~dp0bridge\server.js" "%BRIDGE_DIR%\" >nul
+copy /y "%~dp0bridge\safety.js" "%BRIDGE_DIR%\" >nul
+copy /y "%~dp0bridge\workflows.js" "%BRIDGE_DIR%\" >nul
+copy /y "%~dp0bridge\file-actions.js" "%BRIDGE_DIR%\" >nul
 copy /y "%~dp0bridge\package.json" "%BRIDGE_DIR%\" >nul
+if not exist "%BRIDGE_DIR%\cc_devtools" mkdir "%BRIDGE_DIR%\cc_devtools"
+xcopy /e /i /y "%~dp0cc_devtools\skills" "%BRIDGE_DIR%\cc_devtools\skills" >nul
 
 cd /d "%BRIDGE_DIR%"
 echo   Running npm install...

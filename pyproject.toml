@@ -27,4 +27,4 @@ cc-devtools-path = "cc_devtools.cli:path_cmd"
 include = ["cc_devtools*"]
 
 [tool.setuptools.package-data]
-"cc_devtools" = ["extension/**/*"]
+"cc_devtools" = ["extension/**/*", "skills/**/*"]

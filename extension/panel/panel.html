@@ -9,6 +9,13 @@
   <div id="header">
     <span id="status" class="status-disconnected">未连接</span>
     <span id="page-info"></span>
+    <select id="workflow-select" title="选择 DevTools 工作流">
+      <option value="inspect">Inspect</option>
+      <option value="debug">Debug</option>
+      <option value="selector">Selector</option>
+      <option value="qa">QA</option>
+      <option value="local-data-patch">Local Data Patch</option>
+    </select>
     <div id="header-actions">
       <button id="page-context-btn" title="采集页面内容给 CC">采集</button>
       <button id="help-btn" title="操作提示">?</button>
@@ -27,6 +34,8 @@
       <div class="help-item"><code>[ACTION:title][/ACTION]</code><span>获取页面标题</span></div>
       <div class="help-item"><code>[ACTION:url][/ACTION]</code><span>获取当前 URL</span></div>
       <div class="help-item"><code>[ACTION:copy]内容[/ACTION]</code><span>复制到剪贴板</span></div>
+      <div class="help-item"><code>[ACTION:file:list]*.tsx[/ACTION]</code><span>列出本地项目文件</span></div>
+      <div class="help-item"><code>[ACTION:file:read]路径[/ACTION]</code><span>读取本地项目文件</span></div>
       <div class="help-item"><code>[ACTION:save]路径\n内容[/ACTION]</code><span>写入文件到磁盘</span></div>
     </div>
   </div>

@@ -1,0 +1,58 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { test } from 'node:test';
+import vm from 'node:vm';
+
+function loadPanelContext() {
+  const source = readFileSync('cc_devtools/extension/panel/panel.js', 'utf8');
+  const definitionsOnly = source.split('\nsendBtn.addEventListener')[0];
+  const emptyEl = {
+    addEventListener() {},
+    appendChild() {},
+    classList: { add() {}, toggle() {} },
+    focus() {},
+    remove() {},
+    scrollHeight: 0,
+    style: {},
+    textContent: '',
+    value: '',
+  };
+  const context = {
+    clearTimeout() {},
+    console,
+    document: {
+      createElement: () => ({ ...emptyEl }),
+      getElementById: () => emptyEl,
+      querySelector: () => emptyEl,
+    },
+    navigator: { clipboard: { writeText() {} } },
+    setTimeout() {},
+    window: {},
+    WebSocket: { OPEN: 1 },
+  };
+  vm.createContext(context);
+  vm.runInContext(definitionsOnly, context);
+  return context;
+}
+
+test('parseActions escapes ordinary assistant HTML before rendering', () => {
+  const { parseActions } = loadPanelContext();
+
+  const parsed = parseActions('Before <img src=x onerror=alert(1)> after');
+
+  assert.equal(parsed.actions.length, 0);
+  assert.ok(parsed.html.includes('&lt;img src=x onerror=alert(1)&gt;'));
+  assert.ok(!parsed.html.includes('<img src=x'));
+});
+
+test('parseActions keeps action placeholders while escaping surrounding text', () => {
+  const { parseActions } = loadPanelContext();
+
+  const parsed = parseActions('<b>x</b>\n[ACTION:title][/ACTION]');
+
+  assert.equal(parsed.actions.length, 1);
+  assert.equal(parsed.actions[0].type, 'title');
+  assert.ok(parsed.html.includes('&lt;b&gt;x&lt;/b&gt;'));
+  assert.ok(parsed.html.includes('action-block'));
+  assert.ok(!parsed.html.includes('<b>x</b>'));
+});

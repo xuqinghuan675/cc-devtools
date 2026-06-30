@@ -1,11 +1,12 @@
 const WS_URL = 'ws://localhost:9876';
-const ACTION_RE = /\[ACTION:(eval|dom|dom:all|text|console|network|title|url|save|copy)\]([\s\S]*?)\[\/ACTION\]/g;
+const ACTION_RE = /\[ACTION:(eval|dom|dom:all|text|console|network|title|url|save|copy|file:list|file:read)\]([\s\S]*?)\[\/ACTION\]/g;
 
 let ws = null;
 let reconnectTimer = null;
 let thinkingEl = null;
 let consoleInjected = false;
 let pendingSaves = {};
+let pendingFileActions = {};
 
 const $ = (s) => document.querySelector(s);
 const messagesEl = $('#messages');
@@ -17,6 +18,7 @@ const resetBtn = $('#reset-btn');
 const helpBtn = $('#help-btn');
 const helpPanel = $('#help-panel');
 const pageContextBtn = $('#page-context-btn');
+const workflowSelectEl = $('#workflow-select');
 
 function connect() {
   if (ws && ws.readyState === WebSocket.OPEN) return;
@@ -59,6 +61,11 @@ function connect() {
         pendingSaves[msg.id](msg);
         delete pendingSaves[msg.id];
       }
+    } else if (msg.type === 'file_result') {
+      if (pendingFileActions[msg.id]) {
+        pendingFileActions[msg.id](msg);
+        delete pendingFileActions[msg.id];
+      }
     }
   };
 }
@@ -90,18 +97,27 @@ function send(msg) {
 
   showThinking();
 
-  const payload = {
-    type: 'chat',
-    content: content,
-    pageContext: null,
-    actionResults: msg.actionResults || null
-  };
+  const payload = buildChatPayload({ content, actionResults: msg.actionResults || null });
 
   if (!msg.isActionResult) {
     payload.pageContext = getPageContextSync();
   }
 
   ws.send(JSON.stringify(payload));
+}
+
+function getSelectedWorkflow() {
+  return workflowSelectEl ? workflowSelectEl.value : 'inspect';
+}
+
+function buildChatPayload(msg) {
+  return {
+    type: 'chat',
+    content: msg.content || '',
+    workflow: getSelectedWorkflow(),
+    pageContext: null,
+    actionResults: msg.actionResults || null
+  };
 }
 
 function getPageContextSync() {
@@ -266,6 +282,12 @@ async function executeAction(type, code) {
       return executeSaveFile(filePath, fileContent);
     }
 
+    case 'file:list':
+      return executeFileAction('file_list', { pattern: code.trim() || '**/*' });
+
+    case 'file:read':
+      return executeFileAction('file_read', { path: code.trim() });
+
     default:
       return '未知操作: ' + type;
   }
@@ -280,6 +302,30 @@ function executeInspectedWindowEval(code) {
         resolve(result === undefined ? 'undefined' : String(result));
       }
     });
+  });
+}
+
+function executeFileAction(type, payload) {
+  return new Promise((resolve) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      resolve('文件操作失败: 未连接到 Bridge Server');
+      return;
+    }
+    const id = 'file_' + Date.now() + '_' + Math.random().toString(16).slice(2);
+    pendingFileActions[id] = (msg) => {
+      if (msg.success) {
+        resolve(msg.result || '');
+      } else {
+        resolve('文件操作失败: ' + msg.error);
+      }
+    };
+    ws.send(JSON.stringify({ type, id, ...payload }));
+    setTimeout(() => {
+      if (pendingFileActions[id]) {
+        delete pendingFileActions[id];
+        resolve('文件操作超时');
+      }
+    }, 30000);
   });
 }
 
@@ -330,24 +376,31 @@ function parseActions(content) {
   const actions = [];
   let match;
   const actionRe = new RegExp(ACTION_RE.source, ACTION_RE.flags);
+  const htmlParts = [];
+  let lastIndex = 0;
 
-  let html = content;
   actionRe.lastIndex = 0;
 
   while ((match = actionRe.exec(content)) !== null) {
+    htmlParts.push(formatMessageText(content.substring(lastIndex, match.index)));
     const type = match[1];
     const code = match[2];
     const placeholder = `__ACTION_RESULT_${actions.length}__`;
     actions.push({ type, code, placeholder });
-    html = html.replace(match[0], `<div class="action-block"><div class="action-label">▶ ${type}: ${escapeHtml(code.substring(0, 80))}</div><span id="${placeholder}">执行中...</span></div>`);
+    htmlParts.push(`<div class="action-block"><div class="action-label">▶ ${type}: ${escapeHtml(code.substring(0, 80))}</div><span id="${placeholder}">执行中...</span></div>`);
+    lastIndex = actionRe.lastIndex;
   }
 
-  html = html
+  htmlParts.push(formatMessageText(content.substring(lastIndex)));
+
+  return { html: htmlParts.join(''), actions };
+}
+
+function formatMessageText(text) {
+  return escapeHtml(text)
     .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\n/g, '<br>');
-
-  return { html, actions };
 }
 
 async function executeActions(actions) {
@@ -413,7 +466,7 @@ function removeThinking() {
 }
 
 function escapeHtml(str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 sendBtn.addEventListener('click', () => send({ content: inputEl.value.trim() }));

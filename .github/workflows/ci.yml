@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Python package
+        run: python -m pip install -e .
+
+      - name: Python tests
+        run: python -m unittest discover -s tests -p "test_*.py"
+
+      - name: Node tests
+        run: node --test tests/bridge_safety.test.mjs tests/bridge_workflows.test.mjs tests/bridge_file_actions.test.mjs tests/panel_parse_actions.test.mjs tests/panel_payload.test.mjs
+
+      - name: Syntax checks
+        run: |
+          python -m compileall cc_devtools
+          node --check bridge/server.js
+          node --check bridge/safety.js
+          node --check bridge/workflows.js
+          node --check bridge/file-actions.js
+          node --check cc_devtools/extension/panel/panel.js
+          node --check extension/panel/panel.js

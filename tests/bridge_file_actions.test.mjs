@@ -1,0 +1,39 @@
+import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+
+import { listFiles, readFileInsideRoot } from '../bridge/file-actions.js';
+
+test('listFiles filters generated directories', () => {
+  const root = mkdtempSync(join(tmpdir(), 'cc-devtools-'));
+  mkdirSync(join(root, 'src'));
+  writeFileSync(join(root, 'src', 'CountrySelect.tsx'), '');
+  mkdirSync(join(root, 'node_modules'));
+  writeFileSync(join(root, 'node_modules', 'package.js'), '');
+
+  assert.deepEqual(listFiles(root, '*.tsx'), ['src/CountrySelect.tsx']);
+});
+
+test('readFileInsideRoot reads text inside root', () => {
+  const root = mkdtempSync(join(tmpdir(), 'cc-devtools-'));
+  mkdirSync(join(root, 'data'));
+  writeFileSync(join(root, 'data', 'countries.json'), '[{"code":"US"}]');
+
+  assert.equal(readFileInsideRoot('data/countries.json', root), '[{"code":"US"}]');
+});
+
+test('listFiles matches case-insensitive simple globs', () => {
+  const root = mkdtempSync(join(tmpdir(), 'cc-devtools-'));
+  mkdirSync(join(root, 'src'));
+  writeFileSync(join(root, 'src', 'CountrySelect.tsx'), '');
+
+  assert.deepEqual(listFiles(root, '*countr*'), ['src/CountrySelect.tsx']);
+});
+
+test('readFileInsideRoot rejects parent traversal', () => {
+  const root = mkdtempSync(join(tmpdir(), 'cc-devtools-'));
+
+  assert.throws(() => readFileInsideRoot('../outside.txt', root), /outside allowed root/);
+});

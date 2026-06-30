@@ -2,14 +2,23 @@ import asyncio
 import json
 import os
 import subprocess
-from pathlib import Path
 
 import websockets
 from websockets.asyncio.server import serve
 
-PORT = 9876
-CC_CMD = "cc"
+try:
+    from .file_actions import list_files, read_file
+    from .safety import get_write_root, resolve_write_path
+    from .workflows import get_workflow_prompt
+except ImportError:
+    from file_actions import list_files, read_file
+    from safety import get_write_root, resolve_write_path
+    from workflows import get_workflow_prompt
+
+PORT = int(os.environ.get("CC_DEVTOOLS_PORT", "9876"))
+CC_CMD = os.environ.get("CC_DEVTOOLS_CMD", "cc")
 IS_WINDOWS = os.name == "nt"
+WRITE_ROOT = get_write_root()
 
 SYSTEM_PROMPT = """你是一个网页助手，通过 Chrome DevTools 扩展与用户沟通。你可以直接操作和检查当前网页。
 
@@ -26,9 +35,11 @@ SYSTEM_PROMPT = """你是一个网页助手，通过 Chrome DevTools 扩展与�
 [ACTION:title][/ACTION] — 获取页面标题
 [ACTION:url][/ACTION] — 获取当前页面 URL
 [ACTION:copy]要复制的内容[/ACTION] — 将内容复制到系统剪贴板
+[ACTION:file:list]glob模式[/ACTION] — 列出允许目录内的本地项目文件
+[ACTION:file:read]文件路径[/ACTION] — 读取允许目录内的本地项目文件
 [ACTION:save]文件路径
 文件内容（从下一行开始到 [/ACTION] 之前都是文件内容）
-[/ACTION] — 将内容写入磁盘文件，路径可以是相对于当前工作目录的相对路径或绝对路径
+[/ACTION] — 将内容写入 Bridge Server 允许的工作目录内
 
 ## 重要规则
 
@@ -36,11 +47,15 @@ SYSTEM_PROMPT = """你是一个网页助手，通过 Chrome DevTools 扩展与�
 2. 用户看不到页面截图，你需要用文字描述页面
 3. 标签必须完整：方括号括起来，有开始和结束标签
 4. 一个回复可以包含多个操作标签
-5. 回复语言和用户保持一致"""
+5. 回复语言和用户保持一致
+6. file 和 save 只能访问允许目录，不要尝试读取或覆盖系统路径、密钥、token 或用户未明确要求的文件"""
 
 
-def build_prompt(messages, page_context):
+def build_prompt(messages, page_context, workflow=None):
     parts = [SYSTEM_PROMPT]
+    parts.append(f"\n允许写入目录: {WRITE_ROOT}")
+    parts.append("\n## DevTools Workflow Skill")
+    parts.append(get_workflow_prompt(workflow or "inspect"))
 
     if page_context:
         parts.append("\n## 当前页面上下文")
@@ -101,7 +116,7 @@ async def handle_connection(ws):
                         results += f"[{key}]: {val}\n"
                     conversation.append({"role": "user", "content": results})
 
-                prompt = build_prompt(conversation, msg.get("pageContext"))
+                prompt = build_prompt(conversation, msg.get("pageContext"), msg.get("workflow"))
                 try:
                     response = await asyncio.to_thread(call_cc, prompt)
                     content = response.get("content") or response.get("result") or response.get("message") or json.dumps(response)
@@ -114,7 +129,7 @@ async def handle_connection(ws):
 
             elif msg.get("type") == "write_file":
                 try:
-                    file_path = Path(msg["path"]).resolve()
+                    file_path = resolve_write_path(msg["path"], WRITE_ROOT)
                     file_path.parent.mkdir(parents=True, exist_ok=True)
                     file_path.write_text(msg["content"], encoding="utf-8")
                     await ws.send(json.dumps({
@@ -123,11 +138,45 @@ async def handle_connection(ws):
                         "path": str(file_path),
                         "success": True,
                     }))
-                except OSError as e:
+                except (OSError, ValueError) as e:
                     await ws.send(json.dumps({
                         "type": "write_result",
                         "id": msg["id"],
                         "path": msg["path"],
+                        "success": False,
+                        "error": str(e),
+                    }))
+
+            elif msg.get("type") == "file_list":
+                try:
+                    files = list_files(WRITE_ROOT, msg.get("pattern") or "**/*")
+                    await ws.send(json.dumps({
+                        "type": "file_result",
+                        "id": msg["id"],
+                        "success": True,
+                        "result": "\n".join(files) if files else "(no matching files)",
+                    }))
+                except (OSError, ValueError) as e:
+                    await ws.send(json.dumps({
+                        "type": "file_result",
+                        "id": msg["id"],
+                        "success": False,
+                        "error": str(e),
+                    }))
+
+            elif msg.get("type") == "file_read":
+                try:
+                    content = read_file(msg["path"], WRITE_ROOT)
+                    await ws.send(json.dumps({
+                        "type": "file_result",
+                        "id": msg["id"],
+                        "success": True,
+                        "result": content,
+                    }))
+                except (OSError, ValueError, KeyError) as e:
+                    await ws.send(json.dumps({
+                        "type": "file_result",
+                        "id": msg.get("id"),
                         "success": False,
                         "error": str(e),
                     }))
@@ -145,6 +194,7 @@ def main():
     async def run():
         async with serve(handle_connection, "localhost", PORT):
             print(f"CC DevTools Bridge 运行在 ws://localhost:{PORT}")
+            print(f"文件写入目录: {WRITE_ROOT}")
             print("按 Ctrl+C 停止")
             await asyncio.get_running_loop().create_future()
 
