@@ -56,3 +56,32 @@ test('parseActions keeps action placeholders while escaping surrounding text', (
   assert.ok(parsed.html.includes('action-block'));
   assert.ok(!parsed.html.includes('<b>x</b>'));
 });
+
+test('parseActions supports interaction and project scan actions', () => {
+  const { parseActions } = loadPanelContext();
+
+  const parsed = parseActions([
+    '[ACTION:click]button.save[/ACTION]',
+    '[ACTION:input]input[name="country"]\nSingapore[/ACTION]',
+    '[ACTION:press]Enter[/ACTION]',
+    '[ACTION:project:scan][/ACTION]'
+  ].join('\n'));
+
+  assert.deepEqual(Array.from(parsed.actions, (action) => action.type), [
+    'click',
+    'input',
+    'press',
+    'project:scan'
+  ]);
+});
+
+test('interaction actions serialize selectors inside inspected scripts', () => {
+  const context = loadPanelContext();
+  context.executeInspectedWindowEval = (code) => code;
+
+  const script = context.executeClick('button[data-id="a\'b"]');
+
+  assert.ok(script.includes('document.querySelector("button[data-id=\\"a\'b\\"]")'));
+  assert.ok(script.includes('button[data-id=\\"a\'b\\"]'));
+  assert.ok(!script.includes("return '已点击: button"));
+});

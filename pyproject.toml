@@ -22,9 +22,10 @@ dependencies = ["websockets>=12"]
 [project.scripts]
 cc-devtools = "cc_devtools.server:main"
 cc-devtools-path = "cc_devtools.cli:path_cmd"
+cc-devtools-demo = "cc_devtools.cli:demo_cmd"
 
 [tool.setuptools.packages.find]
 include = ["cc_devtools*"]
 
 [tool.setuptools.package-data]
-"cc_devtools" = ["extension/**/*", "skills/**/*"]
+"cc_devtools" = ["extension/**/*", "skills/**/*", "demo/**/*"]

@@ -1,5 +1,5 @@
 const WS_URL = 'ws://localhost:9876';
-const ACTION_RE = /\[ACTION:(eval|dom|dom:all|text|console|network|title|url|save|copy|file:list|file:read)\]([\s\S]*?)\[\/ACTION\]/g;
+const ACTION_RE = /\[ACTION:(eval|dom|dom:all|text|console|network|title|url|save|copy|click|input|press|file:list|file:read|project:scan)\]([\s\S]*?)\[\/ACTION\]/g;
 
 let ws = null;
 let reconnectTimer = null;
@@ -24,20 +24,20 @@ function connect() {
   if (ws && ws.readyState === WebSocket.OPEN) return;
   clearReconnect();
 
-  statusEl.textContent = '连接中...';
+  statusEl.textContent = 'Connecting...';
   statusEl.className = 'status-disconnected';
 
   ws = new WebSocket(WS_URL);
 
   ws.onopen = () => {
-    statusEl.textContent = '已连接';
+    statusEl.textContent = 'Connected';
     statusEl.className = 'status-connected';
     clearReconnect();
     updatePageInfo();
   };
 
   ws.onclose = () => {
-    statusEl.textContent = '断开，重连中...';
+    statusEl.textContent = 'Disconnected, reconnecting...';
     statusEl.className = 'status-disconnected';
     scheduleReconnect();
   };
@@ -79,9 +79,9 @@ function clearReconnect() {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
 }
 
-function send(msg) {
+async function send(msg) {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
-    addSystemMessage('未连接到 Bridge Server，请先运行 node bridge/server.js');
+    addSystemMessage('Not connected to Bridge Server. Run node bridge/server.js or cc-devtools first.');
     return;
   }
 
@@ -97,8 +97,13 @@ function send(msg) {
 
   showThinking();
 
-  const payload = buildChatPayload({ content, actionResults: msg.actionResults || null });
+  if (!msg.isActionResult) {
+    injectConsoleInterceptor();
+    await collectPageContext({ quiet: true });
+    await collectProjectContext({ quiet: true });
+  }
 
+  const payload = buildChatPayload({ content, actionResults: msg.actionResults || null });
   if (!msg.isActionResult) {
     payload.pageContext = getPageContextSync();
   }
@@ -111,13 +116,19 @@ function getSelectedWorkflow() {
 }
 
 function buildChatPayload(msg) {
+  const workflow = getSelectedWorkflow();
   return {
     type: 'chat',
     content: msg.content || '',
-    workflow: getSelectedWorkflow(),
+    workflow,
     pageContext: null,
+    projectContext: workflow === 'frontend-loop' ? getProjectContextSync() : null,
     actionResults: msg.actionResults || null
   };
+}
+
+function getProjectContextSync() {
+  return window.__cc_projectContext || null;
 }
 
 function getPageContextSync() {
@@ -140,7 +151,7 @@ function updatePageInfo() {
   });
 }
 
-function collectPageContext() {
+function collectPageContext(options = {}) {
   const code = `
     (function() {
       var ctx = {};
@@ -167,16 +178,46 @@ function collectPageContext() {
     })()
   `;
 
-  chrome.devtools.inspectedWindow.eval(code, (result, isException) => {
-    if (!isException && result) {
-      window.__cc_pageUrl = result.url;
-      window.__cc_pageTitle = result.title;
-      window.__cc_bodyText = result.bodyText;
-      window.__cc_dom = result.dom;
-      pageInfoEl.textContent = result.title || result.url || '';
-      addSystemMessage('页面内容已采集');
-    }
+  return new Promise((resolve) => {
+    chrome.devtools.inspectedWindow.eval(code, (result, isException) => {
+      if (!isException && result) {
+        window.__cc_pageUrl = result.url;
+        window.__cc_pageTitle = result.title;
+        window.__cc_bodyText = result.bodyText;
+        window.__cc_dom = result.dom;
+        pageInfoEl.textContent = result.title || result.url || '';
+        if (!options.quiet) addSystemMessage('Page context collected');
+      }
+      resolve(result || null);
+    });
   });
+}
+
+async function collectProjectContext(options = {}) {
+  if (getSelectedWorkflow() !== 'frontend-loop') return null;
+  if (window.__cc_projectContext) return window.__cc_projectContext;
+
+  const result = await executeFileAction('project_scan', {}, options.timeoutMs || 5000);
+  const normalized = normalizeProjectContext(result);
+  if (normalized) {
+    window.__cc_projectContext = normalized;
+    if (!options.quiet) addSystemMessage('Project context scanned');
+  }
+  return window.__cc_projectContext || null;
+}
+
+function normalizeProjectContext(result) {
+  if (!result) return null;
+  if (typeof result !== 'string') return result;
+
+  const trimmed = result.trim();
+  if (!trimmed || (trimmed[0] !== '{' && trimmed[0] !== '[')) return null;
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return trimmed.substring(0, 8000);
+  }
 }
 
 function injectConsoleInterceptor() {
@@ -205,7 +246,7 @@ function injectConsoleInterceptor() {
 
   chrome.devtools.inspectedWindow.eval(code, (result, isException) => {
     if (!isException) {
-      addSystemMessage('已开始监听控制台输出 (最多200条)');
+      addSystemMessage('Console capture started (last 200 entries)');
     }
   });
 }
@@ -242,7 +283,7 @@ async function executeAction(type, code) {
 
     case 'dom':
       return executeInspectedWindowEval(
-        `(function(){ var el = document.querySelector(${JSON.stringify(code)}); return el ? el.outerHTML : '未找到元素: ${code}'; })()`
+        `(function(){ var el = document.querySelector(${JSON.stringify(code)}); return el ? el.outerHTML : 'Element not found: ${code}'; })()`
       );
 
     case 'dom:all':
@@ -252,7 +293,7 @@ async function executeAction(type, code) {
 
     case 'text':
       return executeInspectedWindowEval(
-        `(function(){ var el = document.querySelector(${JSON.stringify(code)}); return el ? el.textContent.trim() : '未找到元素: ${code}'; })()`
+        `(function(){ var el = document.querySelector(${JSON.stringify(code)}); return el ? el.textContent.trim() : 'Element not found: ${code}'; })()`
       );
 
     case 'console':
@@ -270,9 +311,9 @@ async function executeAction(type, code) {
     case 'copy':
       try {
         await navigator.clipboard.writeText(code);
-        return '已复制到剪贴板';
+        return 'Copied to clipboard';
       } catch {
-        return '复制到剪贴板失败（需要用户交互）';
+        return 'Copy failed. User interaction may be required.';
       }
 
     case 'save': {
@@ -282,22 +323,81 @@ async function executeAction(type, code) {
       return executeSaveFile(filePath, fileContent);
     }
 
+    case 'click':
+      return executeClick(code.trim());
+
+    case 'input': {
+      const nl = code.indexOf('\n');
+      const selector = nl > 0 ? code.substring(0, nl).trim() : code.trim();
+      const value = nl > 0 ? code.substring(nl + 1) : '';
+      return executeInput(selector, value);
+    }
+
+    case 'press':
+      return executePress(code.trim());
+
     case 'file:list':
       return executeFileAction('file_list', { pattern: code.trim() || '**/*' });
 
     case 'file:read':
       return executeFileAction('file_read', { path: code.trim() });
 
+    case 'project:scan':
+      return executeFileAction('project_scan', {});
+
     default:
-      return '未知操作: ' + type;
+      return 'Unknown action: ' + type;
   }
+}
+
+function executeClick(selector) {
+  const notFound = 'Element not found: ' + selector;
+  const clicked = 'Clicked: ' + selector;
+  return executeInspectedWindowEval(`
+    (function() {
+      var el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return ${JSON.stringify(notFound)};
+      el.scrollIntoView({ block: 'center', inline: 'center' });
+      el.click();
+      return ${JSON.stringify(clicked)};
+    })()
+  `);
+}
+
+function executeInput(selector, value) {
+  const notFound = 'Element not found: ' + selector;
+  const typed = 'Input updated: ' + selector;
+  return executeInspectedWindowEval(`
+    (function() {
+      var el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return ${JSON.stringify(notFound)};
+      el.focus();
+      el.value = ${JSON.stringify(value)};
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return ${JSON.stringify(typed)};
+    })()
+  `);
+}
+
+function executePress(key) {
+  return executeInspectedWindowEval(`
+    (function() {
+      var target = document.activeElement || document.body;
+      var key = ${JSON.stringify(key || 'Enter')};
+      ['keydown', 'keyup'].forEach(function(type) {
+        target.dispatchEvent(new KeyboardEvent(type, { key: key, bubbles: true }));
+      });
+      return 'Key dispatched: ' + key;
+    })()
+  `);
 }
 
 function executeInspectedWindowEval(code) {
   return new Promise((resolve) => {
     chrome.devtools.inspectedWindow.eval(code, (result, isException) => {
       if (isException) {
-        resolve('执行异常: ' + (isException.value || isException));
+        resolve('Execution error: ' + (isException.value || isException));
       } else {
         resolve(result === undefined ? 'undefined' : String(result));
       }
@@ -305,10 +405,10 @@ function executeInspectedWindowEval(code) {
   });
 }
 
-function executeFileAction(type, payload) {
+function executeFileAction(type, payload, timeoutMs = 30000) {
   return new Promise((resolve) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      resolve('文件操作失败: 未连接到 Bridge Server');
+      resolve('File action failed: Bridge Server is not connected');
       return;
     }
     const id = 'file_' + Date.now() + '_' + Math.random().toString(16).slice(2);
@@ -316,38 +416,38 @@ function executeFileAction(type, payload) {
       if (msg.success) {
         resolve(msg.result || '');
       } else {
-        resolve('文件操作失败: ' + msg.error);
+        resolve('File action failed: ' + msg.error);
       }
     };
     ws.send(JSON.stringify({ type, id, ...payload }));
     setTimeout(() => {
       if (pendingFileActions[id]) {
         delete pendingFileActions[id];
-        resolve('文件操作超时');
+        resolve('File action timed out');
       }
-    }, 30000);
+    }, timeoutMs);
   });
 }
 
 function executeSaveFile(filePath, fileContent) {
   return new Promise((resolve) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      resolve('保存失败: 未连接到 Bridge Server');
+      resolve('Save failed: Bridge Server is not connected');
       return;
     }
     const id = 'save_' + Date.now();
     pendingSaves[id] = (msg) => {
       if (msg.success) {
-        resolve('文件已保存: ' + msg.path);
+        resolve('File saved: ' + msg.path);
       } else {
-        resolve('保存失败: ' + msg.error);
+        resolve('Save failed: ' + msg.error);
       }
     };
     ws.send(JSON.stringify({ type: 'write_file', id, path: filePath, content: fileContent }));
     setTimeout(() => {
       if (pendingSaves[id]) {
         delete pendingSaves[id];
-        resolve('保存超时');
+        resolve('Save timed out');
       }
     }, 30000);
   });
@@ -387,7 +487,7 @@ function parseActions(content) {
     const code = match[2];
     const placeholder = `__ACTION_RESULT_${actions.length}__`;
     actions.push({ type, code, placeholder });
-    htmlParts.push(`<div class="action-block"><div class="action-label">▶ ${type}: ${escapeHtml(code.substring(0, 80))}</div><span id="${placeholder}">执行中...</span></div>`);
+    htmlParts.push(`<div class="action-block"><div class="action-label">Action ${type}: ${escapeHtml(code.substring(0, 80))}</div><span id="${placeholder}">Running...</span></div>`);
     lastIndex = actionRe.lastIndex;
   }
 
@@ -410,7 +510,7 @@ async function executeActions(actions) {
   for (let i = 0; i < actions.length; i++) {
     const a = actions[i];
     const result = await executeAction(a.type, a.code);
-    const short = result.length > 2000 ? result.substring(0, 2000) + '...(已截断)' : result;
+    const short = result.length > 2000 ? result.substring(0, 2000) + '...(truncated)' : result;
 
     const key = `[${a.type}] ${a.code.substring(0, 50)}`;
     actionResults[key] = short;
@@ -444,7 +544,7 @@ function addSystemMessage(text) {
 function renderError(text) {
   const div = document.createElement('div');
   div.className = 'message message-error';
-  div.textContent = '错误: ' + text;
+  div.textContent = 'Error: ' + text;
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
@@ -487,7 +587,7 @@ resetBtn.addEventListener('click', () => {
     ws.send(JSON.stringify({ type: 'reset' }));
   }
   messagesEl.innerHTML = '';
-  addSystemMessage('对话已重置');
+  addSystemMessage('Conversation reset');
 });
 
 helpBtn.addEventListener('click', () => {
@@ -499,6 +599,17 @@ pageContextBtn.addEventListener('click', () => {
   collectPageContext();
   injectConsoleInterceptor();
 });
+
+if (chrome.devtools.network && chrome.devtools.network.onNavigated) {
+  chrome.devtools.network.onNavigated.addListener(() => {
+    consoleInjected = false;
+    window.__cc_consoleLogs = '';
+    window.__cc_bodyText = '';
+    window.__cc_dom = '';
+    updatePageInfo();
+    injectConsoleInterceptor();
+  });
+}
 
 connect();
 sendBtn.disabled = true;

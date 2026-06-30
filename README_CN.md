@@ -1,136 +1,181 @@
 # cc-devtools
 
-把你的 CLI AI（Claude Code、Codex 等）接入 Chrome F12 开发者工具。  
-像聊天一样阅览网页、修改 DOM、执行 JS、写入文件。
+[![CI](https://github.com/xuqinghuan675/cc-devtools/actions/workflows/ci.yml/badge.svg)](https://github.com/xuqinghuan675/cc-devtools/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](pyproject.toml)
+[![Chrome DevTools](https://img.shields.io/badge/Chrome-DevTools-4285F4.svg)](https://developer.chrome.com/docs/devtools)
 
-> 专为非多模态模型设计（DeepSeek、GPT-4o-mini、本地模型），  
-> 模型看不到截图，但能通过文本"看懂"网页。cc-devtools 不需要 API key，桥接服务在本机运行。
+把你的 CLI AI 接入 Chrome F12 DevTools。
 
-## 原理
+![cc-devtools Frontend Loop demo](docs/assets/frontend-loop-demo-animated.svg)
 
+cc-devtools 让 Claude Code、Codex、本地 LLM CLI 和其他终端 AI 工具可以直接在 F12 里聊天、检查真实网页、读取 console/network 证据、理解本地前端项目、点击/输入调试页面、生成 selector，并修改本地前端文件。
+
+> 不再手动把 DOM、console 报错、network 失败和源码片段复制给 AI。让 AI 自己从 DevTools 里收集证据。
+
+[English README](README.md) · [快速开始](docs/QUICKSTART.md) · [Demo script](docs/DEMO_SCRIPT.md) · [使用场景](docs/USE_CASES.md) · [安全说明](SECURITY.md) · [贡献指南](CONTRIBUTING.md)
+
+## 为什么值得用
+
+- **更快定位前端问题**：把 Console、Network、DOM、页面文本放进同一个工作流。
+- **直接在 F12 聊天**：普通聊天会自动带上当前页面上下文，不必每次手动复制信息。
+- **更完整的 DevTools 面板体验**：紧凑的工作流选择、action 参考、可读聊天输出和本地文件动作集中在同一个 F12 面板里。
+- **让非多模态模型也能看懂网页**：网页被转成结构化文本和可执行动作。
+- **先理解前端框架**：Frontend Loop 会自动附带本地项目扫描，覆盖 `package.json`、scripts、框架、bundler、配置文件、关键目录、数据/service 候选文件、依赖和入口文件。
+- **让 agent 操作页面**：点击按钮、填写输入框、按键，并用页面结果验证。
+- **生成稳定 selector**：基于真实 DOM 生成 Playwright locator 和 CSS selector。
+- **本地数据 patch**：例如给国家下拉框加一个新国家，写本地 JSON，并让前端读取它。
+- **本地桥接**：bridge 运行在 `localhost`；你选择的 CLI AI 决定推理是本地还是云端。
+
+## 30 秒示例
+
+运行内置 demo：
+
+```bash
+cc-devtools-demo
+cc-devtools-demo --live
 ```
-浏览器 F12 面板  ←→  WebSocket (localhost:9876)  ←→  cc-devtools 桥接  ←→  cc CLI
-                              ↕
-                       DevTools API（eval / DOM / network / console）
-                              ↕
-                         网页内容
+
+`--live` 会同时启动 demo 页面和 bridge，并尝试自动打开浏览器。如果浏览器没有自动打开，手动访问 `http://localhost:5173`。
+
+按 F12，选择 **Frontend Loop**，点击 demo 页面里的 **Copy prompt**，然后输入：
+
+```text
+给国家选项加 Singapore，用本地 JSON 文件，然后选择它并在页面里验证。
 ```
 
-桥接服务用 `-p` 模式启动 CLI AI，Chrome 扩展将网页内容转为文本喂给 AI。AI 通过 `[ACTION:*]` 标签主动检查和操作页面 — 不需要 MCP，也不需要 cc-devtools API key。
+agent 可以：
 
-注意：你选择的 CLI AI 可能仍然会使用自己的云服务或本地运行时。cc-devtools 只负责提供本地 DevTools 桥接。
+1. 检查真实页面里的国家下拉框。
+2. 扫描项目，理解文件、脚本和数据候选位置。
+3. 读取 `public/cc-devtools/countries.json`。
+4. 把 Singapore 写入本地 JSON 文件。
+5. 重新加载页面数据。
+6. 选择 Singapore 并点击 **Verify**。
+7. 把 `#verification-output` 作为浏览器验证证据返回。
 
-## 为什么做这个
+## 工作原理
 
-很多前端调试场景里，开发者还在手动复制 console 报错、network 请求、DOM 片段和本地源码给 AI。cc-devtools 把这些变成结构化 DevTools 操作，让 agent 能在真实页面上收集证据，并在允许目录内读取和修改本地前端文件。
+```text
+Chrome F12 面板
+   <-> WebSocket ws://localhost:9876
+      <-> cc-devtools bridge
+         <-> CLI AI 命令，例如 cc -p
+
+面板提供 DevTools 动作：
+DOM、text、eval、console、network、页面 click/input/press、project scan、file list/read，以及受限制的本地写入。
+```
+
+cc-devtools 自身不需要 API key。它启动你配置的 CLI AI 命令，并发送结构化页面上下文和工作流提示。
 
 ## 快速开始
 
 ```bash
 pip install git+https://github.com/xuqinghuan675/cc-devtools.git
-cc-devtools           # 启动桥接服务
-cc-devtools-path      # 获取扩展目录路径
+cc-devtools
+cc-devtools-path
 ```
 
-本地开发：
+然后在 Chrome 中：
+
+1. 打开 `chrome://extensions`。
+2. 开启 **开发者模式**。
+3. 点击 **加载已解压的扩展程序**，选择 `cc-devtools-path` 输出的路径。
+4. 打开任意网页并按 **F12**。
+5. 选择 **Claude Code** 标签。
+6. 选择工作流模式，然后直接聊天。普通聊天会自动附带当前页面上下文。
+
+更详细的 Windows 步骤和排错见 [docs/QUICKSTART.md](docs/QUICKSTART.md)。
+
+## 工作流模式
+
+| 模式 | 适用场景 |
+|---|---|
+| Inspect | 理解页面结构、内容、表单、按钮和关键 UI 流程 |
+| Debug | 诊断 console 报错、接口失败、按钮无响应或数据缺失 |
+| Selector | 生成稳定的 Playwright locator 和 CSS selector |
+| QA | 对真实页面做轻量发布验收 |
+| Local Data Patch | 读取/写入本地项目文件，让前端使用本地 mock 数据 |
+| Frontend Loop | 跑完整的真实页面 -> 自动项目上下文 -> 文件 patch -> 浏览器验证闭环 |
+
+工作流提示词位于 [`cc_devtools/skills/frontend-devtools-workflows`](cc_devtools/skills/frontend-devtools-workflows/SKILL.md)。
+
+## 可用动作
+
+| 动作 | 说明 |
+|---|---|
+| `[ACTION:eval]code[/ACTION]` | 在当前 inspected page 中执行 JavaScript |
+| `[ACTION:dom]selector[/ACTION]` | 返回第一个匹配元素的 `outerHTML` |
+| `[ACTION:dom:all]selector[/ACTION]` | 返回所有匹配元素 |
+| `[ACTION:text]selector[/ACTION]` | 返回元素可见文本 |
+| `[ACTION:click]selector[/ACTION]` | 点击 inspected page 中匹配的元素 |
+| `[ACTION:input]selector\ntext[/ACTION]` | 设置输入框值，并触发 input/change 事件 |
+| `[ACTION:press]key[/ACTION]` | 向当前 active element 发送 keydown/keyup |
+| `[ACTION:console][/ACTION]` | 返回最近 console 日志 |
+| `[ACTION:network][/ACTION]` | 返回最近 network 请求 |
+| `[ACTION:title][/ACTION]` | 返回页面标题 |
+| `[ACTION:url][/ACTION]` | 返回当前 URL |
+| `[ACTION:project:scan][/ACTION]` | 汇总本地前端框架、bundler、scripts、配置文件、关键目录、数据/service 候选文件、依赖和入口文件 |
+| `[ACTION:file:list]pattern[/ACTION]` | 列出 bridge 写入根目录内的本地项目文件 |
+| `[ACTION:file:read]path[/ACTION]` | 读取 bridge 写入根目录内的本地项目文件 |
+| `[ACTION:save]path\ncontent[/ACTION]` | 写入 bridge 写入根目录内的本地文件 |
+
+文件动作只能访问 `CC_DEVTOOLS_WRITE_ROOT`，或启动 bridge 时所在的目录。
+
+## 从源码安装
 
 ```bash
 git clone https://github.com/xuqinghuan675/cc-devtools.git
 cd cc-devtools
 pip install -e .
+cc-devtools
 ```
 
-然后在 Chrome 中：
-1. 打开 `chrome://extensions`
-2. 开启右上角**开发者模式**
-3. 点击**加载已解压的扩展程序** → 选择 `cc-devtools-path` 输出的路径
-4. 打开任意网页，按 **F12** → 找到 **Claude Code** 标签
-5. 先点**采集**发送页面内容，然后开始对话
+Node bridge 备选方案：
 
-发送前可以在面板里选择工作流模式：
-
-| 模式 | 适用场景 |
-|---|---|
-| Inspect | 理解页面结构、内容和关键 UI 流程 |
-| Debug | 诊断 console 报错、接口失败、按钮无响应、数据不加载 |
-| Selector | 生成稳定的 Playwright/CSS selector |
-| QA | 对当前页面做轻量发布验收 |
-| Local Data Patch | 读取/写入本地项目文件，让前端读取本地 mock 数据 |
-
-## 功能
-
-| 操作 | 说明 |
-|---|---|
-| `[ACTION:eval]JS代码[/ACTION]` | 在页面上执行 JS |
-| `[ACTION:dom]选择器[/ACTION]` | 获取元素 outerHTML |
-| `[ACTION:dom:all]选择器[/ACTION]` | 获取所有匹配元素 |
-| `[ACTION:text]选择器[/ACTION]` | 获取可见文本 |
-| `[ACTION:console][/ACTION]` | 获取控制台日志（最近200条） |
-| `[ACTION:network][/ACTION]` | 获取网络请求（最近20条） |
-| `[ACTION:title][/ACTION]` | 获取页面标题 |
-| `[ACTION:url][/ACTION]` | 获取当前 URL |
-| `[ACTION:file:list]模式[/ACTION]` | 列出桥接写入目录下的本地项目文件 |
-| `[ACTION:file:read]路径[/ACTION]` | 读取桥接写入目录下的本地项目文件 |
-| `[ACTION:save]路径\n内容[/ACTION]` | 写入文件到桥接服务允许的目录 |
-
-AI 自己决定用哪些操作，你只需要像聊天一样提问。
-
-## 示例：本地数据 Patch
-
-提问：
-
-```text
-给国家选项加 Singapore，用本地 JSON 文件，不改后端。
+```bash
+cd bridge
+npm install
+node server.js
 ```
-
-在 **Local Data Patch** 模式下，agent 应该：
-
-1. 检查国家下拉框和当前选项。
-2. 查看 Network 中是否有国家数据请求。
-3. 用 `[ACTION:file:list]*countr*[/ACTION]` 和 `[ACTION:file:read]...[/ACTION]` 找到前端数据加载逻辑。
-4. 写入本地文件，例如 `public/cc-devtools/countries.json`。
-5. 修改前端在开发环境读取这个本地文件。
-6. 刷新或重新检查 DOM，并给出验证证据。
-
-## 环境要求
-
-- Python 3.9+
-- 终端中有可用的 CLI AI 命令（`cc`、`claude` 等）
-- Chrome 或任意 Chromium 内核浏览器
 
 ## 配置
 
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
-| `CC_DEVTOOLS_CMD` | `cc` | 要调用的 CLI AI 命令 |
+| `CC_DEVTOOLS_CMD` | `cc` | 要运行的 CLI AI 命令 |
 | `CC_DEVTOOLS_PORT` | `9876` | 本地 WebSocket 端口 |
-| `CC_DEVTOOLS_WRITE_ROOT` | 启动桥接服务时的当前目录 | `[ACTION:save]` 允许写入的目录 |
+| `CC_DEVTOOLS_WRITE_ROOT` | 当前工作目录 | 文件动作允许读写的目录 |
 
-## 安全说明
+## 安全模型
 
-- 只在你信任的网页上使用这个扩展。页面文本、DOM 片段、控制台日志和操作结果会发送给你的 CLI AI 进程。
+- 只在你信任的页面上使用这个扩展。
+- 页面文本、DOM 片段、console 日志、network 摘要和 action 结果会发送给你的 CLI AI 进程。
 - `[ACTION:eval]` 会在当前 inspected page 中执行 JavaScript。
-- `[ACTION:file:list]`、`[ACTION:file:read]` 和 `[ACTION:save]` 只能访问 `CC_DEVTOOLS_WRITE_ROOT`，或启动桥接服务时所在的目录。
-- DevTools 面板会在渲染普通 AI 回复前转义 HTML，同时保留合法的 action block。
+- 页面交互动作可以在当前页面点击、输入或按键。
+- `[ACTION:project:scan]` 会读取 bridge 写入根目录内的本地项目元数据。
+- 文件动作不能离开配置的写入根目录。
+- DevTools 面板会在渲染普通 AI 回复前转义 HTML，同时保留合法 action block。
 
-## Node.js 备选方案
+完整安全说明见 [SECURITY.md](SECURITY.md)。
 
-如果你更习惯用 Node.js：
+## 项目状态
 
-```bash
-cd bridge && npm install && node server.js
-```
+cc-devtools 目前是 early-stage alpha。Python bridge 是主路径；Node bridge 是给偏好 Node.js 的用户保留的备选方案。
 
-## 常见问题
+适合贡献的方向：
 
-**Q: 为什么不用 Chrome 内置 AI？**  
-A: 内置 AI 需要开实验性 flag，只支持英文。cc-devtools 支持任意 CLI AI、任意语言。
+- 常见工作流的 demo GIF 或截图
+- 更多框架下的本地数据 patch 示例
+- React、Vue、Next.js、Vite 的点击/输入验证示例
+- Chrome extension UI 和可访问性改进
 
-**Q: 支持本地模型吗（Ollama 等）？**  
-A: 支持。只要命令行能调用的模型都能用。
+## 相关资料
 
-**Q: 能改源文件而不只是当前 DOM 吗？**  
-A: 能。从你的项目目录启动桥接服务，或设置 `CC_DEVTOOLS_WRITE_ROOT`，然后用 `[ACTION:save]` 写入该目录内的文件。配合 Chrome DevTools Overrides 可以即时生效。
+- [Chrome DevTools 文档](https://developer.chrome.com/docs/devtools)
+- [Chrome DevTools Local Overrides](https://developer.chrome.com/docs/devtools/overrides)
+- [Playwright locators](https://playwright.dev/docs/locators)
+- [GitHub README 指南](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-readmes)
 
 ## License
 

@@ -7,42 +7,56 @@
 <body>
 <div id="app">
   <div id="header">
-    <span id="status" class="status-disconnected">未连接</span>
+    <div id="brand">
+      <span class="brand-mark">cc</span>
+      <div class="brand-copy">
+        <strong>cc-devtools</strong>
+        <span id="status" class="status-disconnected">Disconnected</span>
+      </div>
+    </div>
     <span id="page-info"></span>
-    <select id="workflow-select" title="选择 DevTools 工作流">
-      <option value="inspect">Inspect</option>
-      <option value="debug">Debug</option>
-      <option value="selector">Selector</option>
-      <option value="qa">QA</option>
-      <option value="local-data-patch">Local Data Patch</option>
-    </select>
+    <label id="workflow-control">
+      <span>Workflow</span>
+      <select id="workflow-select" title="Choose a DevTools workflow">
+        <option value="inspect">Inspect</option>
+        <option value="debug">Debug</option>
+        <option value="selector">Selector</option>
+        <option value="qa">QA</option>
+        <option value="local-data-patch">Local Data Patch</option>
+        <option value="frontend-loop">Frontend Loop</option>
+      </select>
+    </label>
     <div id="header-actions">
-      <button id="page-context-btn" title="采集页面内容给 CC">采集</button>
-      <button id="help-btn" title="操作提示">?</button>
-      <button id="reset-btn" title="重置对话">重置</button>
+      <button id="page-context-btn" title="Collect current page context">Collect</button>
+      <button id="help-btn" title="Show action reference">?</button>
+      <button id="reset-btn" title="Reset conversation">Reset</button>
     </div>
   </div>
   <div id="help-panel" class="hidden">
-    <div class="help-title">可用操作 — CC 会在回复中使用这些标签操作网页</div>
+    <div class="help-title">Action Reference</div>
     <div class="help-grid">
-      <div class="help-item"><code>[ACTION:eval]JS代码[/ACTION]</code><span>执行 JS 并获取返回值</span></div>
-      <div class="help-item"><code>[ACTION:dom]选择器[/ACTION]</code><span>获取元素 outerHTML</span></div>
-      <div class="help-item"><code>[ACTION:dom:all]选择器[/ACTION]</code><span>获取所有匹配元素</span></div>
-      <div class="help-item"><code>[ACTION:text]选择器[/ACTION]</code><span>获取元素文本内容</span></div>
-      <div class="help-item"><code>[ACTION:console][/ACTION]</code><span>获取控制台日志</span></div>
-      <div class="help-item"><code>[ACTION:network][/ACTION]</code><span>获取网络请求 (最近20条)</span></div>
-      <div class="help-item"><code>[ACTION:title][/ACTION]</code><span>获取页面标题</span></div>
-      <div class="help-item"><code>[ACTION:url][/ACTION]</code><span>获取当前 URL</span></div>
-      <div class="help-item"><code>[ACTION:copy]内容[/ACTION]</code><span>复制到剪贴板</span></div>
-      <div class="help-item"><code>[ACTION:file:list]*.tsx[/ACTION]</code><span>列出本地项目文件</span></div>
-      <div class="help-item"><code>[ACTION:file:read]路径[/ACTION]</code><span>读取本地项目文件</span></div>
-      <div class="help-item"><code>[ACTION:save]路径\n内容[/ACTION]</code><span>写入文件到磁盘</span></div>
+      <div class="help-item"><code>[ACTION:eval]code[/ACTION]</code><span>Run JavaScript in the inspected page</span></div>
+      <div class="help-item"><code>[ACTION:dom]selector[/ACTION]</code><span>Read element outerHTML</span></div>
+      <div class="help-item"><code>[ACTION:dom:all]selector[/ACTION]</code><span>Read all matching elements</span></div>
+      <div class="help-item"><code>[ACTION:text]selector[/ACTION]</code><span>Read visible element text</span></div>
+      <div class="help-item"><code>[ACTION:console][/ACTION]</code><span>Read recent console logs</span></div>
+      <div class="help-item"><code>[ACTION:network][/ACTION]</code><span>Summarize recent requests</span></div>
+      <div class="help-item"><code>[ACTION:title][/ACTION]</code><span>Read page title</span></div>
+      <div class="help-item"><code>[ACTION:url][/ACTION]</code><span>Read current URL</span></div>
+      <div class="help-item"><code>[ACTION:copy]text[/ACTION]</code><span>Copy text to clipboard</span></div>
+      <div class="help-item"><code>[ACTION:click]selector[/ACTION]</code><span>Click a page element</span></div>
+      <div class="help-item"><code>[ACTION:input]selector\ntext[/ACTION]</code><span>Fill a control and fire events</span></div>
+      <div class="help-item"><code>[ACTION:press]Enter[/ACTION]</code><span>Dispatch keyboard events</span></div>
+      <div class="help-item"><code>[ACTION:project:scan][/ACTION]</code><span>Scan the local frontend project</span></div>
+      <div class="help-item"><code>[ACTION:file:list]*.tsx[/ACTION]</code><span>List local project files</span></div>
+      <div class="help-item"><code>[ACTION:file:read]path[/ACTION]</code><span>Read a local project file</span></div>
+      <div class="help-item"><code>[ACTION:save]path\ncontent[/ACTION]</code><span>Write a local file to disk</span></div>
     </div>
   </div>
   <div id="messages"></div>
   <div id="input-container">
-    <textarea id="input" rows="2" placeholder="输入消息，Ctrl+Enter 发送..."></textarea>
-    <button id="send-btn">发送</button>
+    <textarea id="input" rows="2" placeholder="Ask the agent to inspect, patch, click, or verify..."></textarea>
+    <button id="send-btn">Send</button>
   </div>
 </div>
 <script src="panel.js"></script>

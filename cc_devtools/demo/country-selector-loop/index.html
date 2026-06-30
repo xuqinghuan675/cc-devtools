@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Country Selector Loop Demo</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="workspace" aria-labelledby="demo-title">
+      <div class="demo-bar">
+        <strong>cc-devtools demo</strong>
+        <span>F12 chat -> local file patch -> browser proof</span>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">cc-devtools Frontend Loop</p>
+        <h1 id="demo-title">Patch local data, then verify it in the browser.</h1>
+        <p class="summary">This page reads country options from a local JSON file. Use F12 chat to add Singapore, reload the data, select it, and prove the change from the live page.</p>
+      </div>
+
+      <div class="prompt-panel">
+        <div>
+          <p class="panel-kicker">Prompt to paste in F12</p>
+          <textarea id="demo-prompt" readonly rows="3">Add Singapore to the country selector. Use the local JSON file, then select it and verify it in the page.</textarea>
+        </div>
+        <button id="copy-demo-prompt" type="button">Copy prompt</button>
+        <output id="prompt-copy-status" aria-live="polite">Run cc-devtools-demo --live, press F12, then paste this prompt.</output>
+      </div>
+
+      <ol class="loop-checklist" aria-label="Frontend Loop checklist">
+        <li><span>Step 1</span><strong>Press F12 and choose Frontend Loop</strong></li>
+        <li><span>Step 2</span><strong>Use automatic project context</strong></li>
+        <li><span>Step 3</span><strong>Write Singapore to local JSON</strong></li>
+        <li><span>Step 4</span><strong>Verify #verification-output</strong></li>
+      </ol>
+
+      <div class="task-panel">
+        <label for="country-select">Country</label>
+        <div class="control-row">
+          <select id="country-select" name="country" aria-describedby="data-source"></select>
+          <button id="reload-data" type="button">Reload data</button>
+          <button id="verify-country" type="button">Verify</button>
+        </div>
+        <p id="data-source">Data source: <code>public/cc-devtools/countries.json</code></p>
+        <output id="verification-output" for="country-select verify-country">Waiting for selection.</output>
+      </div>
+      <div class="evidence-strip" aria-label="Demo evidence">
+        <div><span>Live DOM</span><strong id="country-count">0 options</strong></div>
+        <div><span>Expected patch</span><strong>Singapore</strong></div>
+        <div><span>Verification selector</span><strong>#verification-output</strong></div>
+      </div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

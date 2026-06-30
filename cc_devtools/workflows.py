@@ -10,6 +10,7 @@ WORKFLOW_FILES = {
     "selector": "references/selectors.md",
     "qa": "references/qa.md",
     "local-data-patch": "references/local-data-patch.md",
+    "frontend-loop": "references/frontend-loop.md",
 }
 
 

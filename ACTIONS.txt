@@ -1,56 +1,80 @@
-Claude Code DevTools — 可用操作列表
-=====================================
+Claude Code DevTools - action reference
+=======================================
 
-CC 在回复中使用以下标签来操作网页和文件，面板会自动解析执行并回传结果。
+The assistant can use these tags in replies. The DevTools panel parses them,
+runs the requested page or file action, and sends the result back into the chat.
 
-[ACTION:eval]JavaScript代码[/ACTION]
-    在页面上执行 JS 并获取返回值
-    例: [ACTION:eval]document.querySelectorAll('a').length[/ACTION]
+[ACTION:eval]JavaScript code[/ACTION]
+    Run JavaScript in the inspected page and return the result.
+    Example: [ACTION:eval]document.querySelectorAll('a').length[/ACTION]
 
-[ACTION:dom]CSS选择器[/ACTION]
-    获取匹配元素的 outerHTML（仅第一个）
-    例: [ACTION:dom]#main[/ACTION]
+[ACTION:dom]CSS selector[/ACTION]
+    Return the first matched element's outerHTML.
+    Example: [ACTION:dom]#main[/ACTION]
 
-[ACTION:dom:all]CSS选择器[/ACTION]
-    获取所有匹配元素的 outerHTML
-    例: [ACTION:dom:all].item[/ACTION]
+[ACTION:dom:all]CSS selector[/ACTION]
+    Return all matched elements' outerHTML.
+    Example: [ACTION:dom:all].item[/ACTION]
 
-[ACTION:text]CSS选择器[/ACTION]
-    获取元素的可见文本内容
-    例: [ACTION:text]h1[/ACTION]
+[ACTION:text]CSS selector[/ACTION]
+    Return visible text for the matched element.
+    Example: [ACTION:text]h1[/ACTION]
+
+[ACTION:click]CSS selector[/ACTION]
+    Scroll the matched element into view and click it.
+    Example: [ACTION:click]button[type="submit"][/ACTION]
+
+[ACTION:input]CSS selector
+text to type
+[/ACTION]
+    Focus the matched input-like element, set its value, and dispatch input/change events.
+    Example:
+    [ACTION:input]input[name="country"]
+    Singapore
+    [/ACTION]
+
+[ACTION:press]key[/ACTION]
+    Dispatch keydown/keyup events on the active element.
+    Example: [ACTION:press]Enter[/ACTION]
 
 [ACTION:console][/ACTION]
-    获取最近的控制台日志（最多200条）
+    Return recent console logs.
 
 [ACTION:network][/ACTION]
-    获取最近20条网络请求（需打开 Network 面板）
+    Return recent network requests.
 
 [ACTION:title][/ACTION]
-    获取页面标题
+    Return the page title.
 
 [ACTION:url][/ACTION]
-    获取当前页面 URL
+    Return the current page URL.
 
-[ACTION:copy]要复制的内容[/ACTION]
-    将内容复制到系统剪贴板
-    例: [ACTION:copy]console.log('hello')[/ACTION]
+[ACTION:copy]content[/ACTION]
+    Copy content to the system clipboard.
+    Example: [ACTION:copy]console.log('hello')[/ACTION]
 
-[ACTION:file:list]glob模式[/ACTION]
-    列出 Bridge Server 允许目录内的本地项目文件
-    自动过滤 .git、node_modules、dist、build、__pycache__
-    例: [ACTION:file:list]*countr*[/ACTION]
+[ACTION:project:scan][/ACTION]
+    Scan the local frontend project under the bridge write root. The report
+    includes framework, bundler, package manager, package scripts, config files,
+    key directories, dependency hints, likely entry files, and data/service
+    candidates.
 
-[ACTION:file:read]文件路径[/ACTION]
-    读取 Bridge Server 允许目录内的本地项目文件
-    例: [ACTION:file:read]src/data/countries.json[/ACTION]
+[ACTION:file:list]glob pattern[/ACTION]
+    List local project files under the bridge write root.
+    The bridge filters .git, node_modules, dist, build, and __pycache__.
+    Example: [ACTION:file:list]*countr*[/ACTION]
 
-[ACTION:save]文件路径
-文件内容（从下一行开始）
+[ACTION:file:read]path[/ACTION]
+    Read a local project file under the bridge write root.
+    Example: [ACTION:file:read]src/data/countries.json[/ACTION]
+
+[ACTION:save]path
+file content from the next line
 [/ACTION]
-    将内容写入 Bridge Server 允许的目录，自动创建目录
-    默认允许目录是 Bridge Server 启动时的工作目录
-    可用 CC_DEVTOOLS_WRITE_ROOT 指定允许目录
-    例: [ACTION:save]index.html
-        <!DOCTYPE html>
-        <html>...</html>
-        [/ACTION]
+    Write a local file under the bridge write root and create parent directories.
+    The default write root is the directory where the bridge was started.
+    You can override it with CC_DEVTOOLS_WRITE_ROOT.
+    Example:
+    [ACTION:save]public/cc-devtools/countries.json
+    [{"code":"SG","name":"Singapore"}]
+    [/ACTION]

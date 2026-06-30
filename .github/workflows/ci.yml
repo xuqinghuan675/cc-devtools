@@ -29,7 +29,7 @@ jobs:
         run: python -m unittest discover -s tests -p "test_*.py"
 
       - name: Node tests
-        run: node --test tests/bridge_safety.test.mjs tests/bridge_workflows.test.mjs tests/bridge_file_actions.test.mjs tests/panel_parse_actions.test.mjs tests/panel_payload.test.mjs
+        run: node --test tests/bridge_safety.test.mjs tests/bridge_workflows.test.mjs tests/bridge_file_actions.test.mjs tests/bridge_project_scan.test.mjs tests/panel_parse_actions.test.mjs tests/panel_payload.test.mjs tests/panel_workflow_options.test.mjs
 
       - name: Syntax checks
         run: |
@@ -38,5 +38,14 @@ jobs:
           node --check bridge/safety.js
           node --check bridge/workflows.js
           node --check bridge/file-actions.js
+          node --check bridge/project-scan.js
           node --check cc_devtools/extension/panel/panel.js
           node --check extension/panel/panel.js
+          node --check cc_devtools/demo/country-selector-loop/app.js
+          node --check cc_devtools/demo/country-selector-loop/reset-countries.mjs
+          node --check examples/country-selector-loop/app.js
+          node --check examples/country-selector-loop/reset-countries.mjs
+          node --check scripts/generate-demo-assets.mjs
+
+      - name: Demo asset check
+        run: node scripts/generate-demo-assets.mjs

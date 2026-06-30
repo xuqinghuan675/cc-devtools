@@ -10,6 +10,15 @@ test('known workflow is loaded', () => {
   assert.match(prompt, /country/i);
 });
 
+test('frontend loop workflow is loaded', () => {
+  const prompt = getWorkflowPrompt('frontend-loop');
+
+  assert.match(prompt, /Frontend Loop/);
+  assert.match(prompt, /\[ACTION:project:scan\]\[\/ACTION\]/);
+  assert.match(prompt, /\[ACTION:click\]/);
+  assert.match(prompt, /Singapore/);
+});
+
 test('unknown workflow falls back to inspect', () => {
   const prompt = getWorkflowPrompt('not-real');
 

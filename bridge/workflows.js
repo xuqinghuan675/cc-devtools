@@ -10,7 +10,8 @@ const workflowFiles = {
   debug: 'references/debugging.md',
   selector: 'references/selectors.md',
   qa: 'references/qa.md',
-  'local-data-patch': 'references/local-data-patch.md'
+  'local-data-patch': 'references/local-data-patch.md',
+  'frontend-loop': 'references/frontend-loop.md'
 };
 
 export function getWorkflowPrompt(name) {
