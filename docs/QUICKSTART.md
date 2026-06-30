@@ -1,66 +1,49 @@
 # Quickstart
 
-This guide gets cc-devtools running from zero on a local frontend project.
+This guide gets cc-devtools running with the least possible setup.
 
-## 1. Install
+## Windows: Two Steps
 
-```bash
-pip install git+https://github.com/xuqinghuan675/cc-devtools.git
-```
+Requirements:
 
-You also need a CLI AI command available in your terminal. By default cc-devtools runs:
+- Python 3.9+
+- Claude Code CLI available as `cc` or `claude`
+- Chrome
 
-```bash
-cc -p
-```
+### Step 1: Double-click `install.bat`
 
-To use another command:
-
-```bash
-set CC_DEVTOOLS_CMD=claude
-```
-
-On macOS/Linux:
-
-```bash
-export CC_DEVTOOLS_CMD=claude
-```
-
-## 2. Start the Bridge
-
-Start the bridge from your frontend project directory if you want file actions to read or write that project.
-
-```bash
-cd path/to/your-frontend-app
-cc-devtools
-```
-
-You should see:
+Download or clone this repository, then double-click:
 
 ```text
-CC DevTools Bridge running at ws://localhost:9876
+install.bat
 ```
 
-The bridge stays open while you use the DevTools panel.
+The installer does the boring parts for you:
 
-## 3. Load the Chrome Extension
+- installs cc-devtools into the current Python environment with `python -m pip install -e`
+- detects `cc`, `claude`, or your existing `CC_DEVTOOLS_CMD`
+- stops an old bridge process if port `9876` is already occupied
+- creates `start-bridge.bat`
+- starts the bridge automatically
+- opens `chrome://extensions`
+- opens the local `extension` folder
 
-Print the extension path:
+If you restart Windows or close the bridge window later, double-click `start-bridge.bat`.
 
-```bash
-cc-devtools-path
-```
+### Step 2: Load the Chrome Extension
 
-Then:
+In the Chrome extensions page that opened:
 
-1. Open `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Click **Load unpacked**.
-4. Select the printed extension directory.
-5. Open a web page and press **F12**.
+1. Enable **Developer mode**.
+2. Click **Load unpacked**.
+3. Select the opened `extension` folder.
+4. Open any web page.
+5. Press **F12**.
 6. Select the **Claude Code** DevTools tab.
 
-## 4. First Useful Prompt
+You can now chat inside F12. Use **Collect** to attach page context, or choose **Frontend Loop** when you want the agent to inspect the page, understand the local frontend project, edit files, click the page, and verify the result.
+
+## First Useful Prompts
 
 Choose **Inspect** mode and ask:
 
@@ -68,7 +51,7 @@ Choose **Inspect** mode and ask:
 What does this page do? Summarize the main controls and data shown.
 ```
 
-Then choose **Debug** mode and ask:
+Choose **Debug** mode and ask:
 
 ```text
 Check console and network. Why is this page failing to load data?
@@ -80,25 +63,39 @@ For an interactive bug, ask:
 The Save button does nothing. Click it, inspect console/network/DOM evidence, and tell me the smallest fix.
 ```
 
-## 5. Local Data Patch Example
+## Local File Actions
 
-Start the bridge from your app root:
+File actions are limited to `CC_DEVTOOLS_WRITE_ROOT`.
 
-```bash
-cd path/to/your-frontend-app
-cc-devtools
+With the one-click installer, the default write root is the folder where `install.bat` lives. To point file actions at a specific frontend project, set `CC_DEVTOOLS_WRITE_ROOT` before running `install.bat`:
+
+```bat
+set CC_DEVTOOLS_WRITE_ROOT=D:\path\to\your-frontend-app
+install.bat
 ```
 
-Choose **Local Data Patch** mode and ask:
+Then choose **Local Data Patch** or **Frontend Loop** and ask:
 
 ```text
 Add Singapore to the country selector. Use a local JSON file instead of changing the backend.
 ```
 
-The agent should inspect the page, locate likely data files, read existing source, write a local JSON file inside the bridge root, patch frontend code, and verify the DOM.
-It can also scan the frontend project before editing and use click/input actions to verify the final page state.
+The agent can inspect the live page, scan the project, read/write files inside the write root, reload page data, click or type in the page, and return browser evidence.
 
-## 6. Frontend Loop Demo
+## CLI Install
+
+Use the CLI path when you prefer manual control or are not on Windows:
+
+```bash
+pip install git+https://github.com/xuqinghuan675/cc-devtools.git
+cd path/to/your-frontend-app
+cc-devtools
+cc-devtools-path
+```
+
+Then load the printed extension path in `chrome://extensions`.
+
+## Demo
 
 Use the bundled demo when you want to see the full loop without preparing your own app:
 
@@ -109,6 +106,8 @@ cc-devtools-demo --live
 
 `--live` starts both the page and bridge, then opens the page in your default browser. If it does not open automatically, open `http://localhost:5173`.
 
+`http://127.0.0.1:5173` or `http://localhost:5173` is only the bundled country-selector demo page. It is useful for testing whether the agent can inspect a page, edit a local JSON file, reload data, click the page, and verify the result. It is not the bridge server. The bridge is the separate console window listening on `ws://localhost:9876`.
+
 Choose **Frontend Loop**, click **Copy prompt** on the demo page, and ask:
 
 ```text
@@ -116,38 +115,24 @@ Add Singapore to the country selector. Use the local JSON file, then select it a
 ```
 
 The expected result is a local edit to `public/cc-devtools/countries.json` plus browser evidence from `#verification-output`.
-Frontend Loop automatically attaches an initial local project scan to the chat payload, so the agent starts with framework, script, entry-file, and data-file hints before it edits.
 
 ## Troubleshooting
 
 ### The DevTools panel says "not connected"
 
-- Make sure `cc-devtools` is still running.
-- Check the bridge port. Default is `9876`.
-- If another app uses that port, set `CC_DEVTOOLS_PORT`.
+- Make sure the `CC DevTools Bridge` window is still open.
+- If it is closed, double-click `start-bridge.bat`.
+- Re-run `install.bat` if another process is occupying port `9876`; it will stop the old listener.
+
+### The panel says the CLI returned no output
+
+- Run `cc --version` or `claude --version` in a terminal.
+- Make sure your CLI AI is logged in.
+- If you use a custom command, set `CC_DEVTOOLS_CMD` before running `install.bat`.
 
 ### File actions cannot find my project
 
-Start the bridge from your project root:
-
-```bash
-cd path/to/your-frontend-app
-cc-devtools
-```
-
-Or set:
-
-```bash
-set CC_DEVTOOLS_WRITE_ROOT=D:\path\to\your-frontend-app
-```
-
-### The CLI AI command is wrong
-
-Set `CC_DEVTOOLS_CMD`:
-
-```bash
-set CC_DEVTOOLS_CMD=claude
-```
+Set `CC_DEVTOOLS_WRITE_ROOT` to your frontend project root, then re-run `install.bat`.
 
 ### A page blocks DevTools eval
 

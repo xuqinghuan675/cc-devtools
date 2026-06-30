@@ -81,7 +81,7 @@ function clearReconnect() {
 
 async function send(msg) {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
-    addSystemMessage('Not connected to Bridge Server. Run node bridge/server.js or cc-devtools first.');
+    addSystemMessage('Not connected to Bridge Server. Run start-bridge.bat or cc-devtools first.');
     return;
   }
 

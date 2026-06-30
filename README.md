@@ -71,22 +71,25 @@ cc-devtools does not require its own API key. It starts your configured CLI AI c
 
 ## Quick Start
 
+### Windows: two steps
+
+1. Download or clone this repository, then double-click `install.bat`.
+   The installer installs the Python bridge, detects `cc` or `claude`, stops any old bridge already using port `9876`, starts `start-bridge.bat`, opens `chrome://extensions`, and opens the local `extension` folder.
+2. In Chrome, enable **Developer mode**, click **Load unpacked**, and select the opened `extension` folder.
+
+Then open any web page, press **F12**, choose the **Claude Code** tab, and chat.
+
+### CLI install
+
 ```bash
 pip install git+https://github.com/xuqinghuan675/cc-devtools.git
 cc-devtools
 cc-devtools-path
 ```
 
-Then in Chrome:
+Use the CLI path when you want to start the bridge manually from a specific frontend project directory.
 
-1. Open `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Click **Load unpacked** and select the path printed by `cc-devtools-path`.
-4. Open a web page and press **F12**.
-5. Select the **Claude Code** tab.
-6. Choose a workflow mode and chat. The panel can collect current page context before normal chat messages.
-
-For screenshots, troubleshooting, and Windows steps, see [docs/QUICKSTART.md](docs/QUICKSTART.md).
+For screenshots, troubleshooting, and detailed Windows steps, see [docs/QUICKSTART.md](docs/QUICKSTART.md).
 
 ## Workflow Modes
 

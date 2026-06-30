@@ -1,116 +1,153 @@
 @echo off
-setlocal EnableDelayedExpansion
+setlocal EnableExtensions EnableDelayedExpansion
 
-title CC DevTools Install
+title CC DevTools Setup
 
-echo.
-echo   ======================================
-echo     Claude Code DevTools Extension
-echo   ======================================
-echo.
-
-REM Check Node.js
-where node >nul 2>&1
-if %errorlevel% neq 0 (
-    echo   [ERR] Node.js not found. Install from https://nodejs.org
-    pause
-    exit /b 1
+set "ROOT=%~dp0"
+if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
+set "PORT=9876"
+set "EXT_DIR=%ROOT%\extension"
+set "START_SCRIPT=%ROOT%\start-bridge.bat"
+if defined CC_DEVTOOLS_WRITE_ROOT (
+    set "WRITE_ROOT=%CC_DEVTOOLS_WRITE_ROOT%"
+) else (
+    set "WRITE_ROOT=%ROOT%"
 )
-for /f "tokens=*" %%v in ('node -v') do echo   Node: %%v
-
-REM Check CC
-where cc >nul 2>&1
-if %errorlevel% neq 0 (
-    echo   [WARN] cc command not found in PATH
+if defined CC_DEVTOOLS_LOG (
+    set "LOG_PATH=%CC_DEVTOOLS_LOG%"
+) else (
+    set "LOG_PATH=%ROOT%\cc-devtools-bridge.log"
 )
 
 echo.
-
-REM --- Install bridge to LOCAL disk (bypass OneDrive file-lock) ---
-set BRIDGE_DIR=%LOCALAPPDATA%\cc-devtools-bridge
-echo   [1/3] Install Bridge Server
-echo   Target: %BRIDGE_DIR%
+echo   ==========================================
+echo     cc-devtools one-click Windows setup
+echo   ==========================================
+echo.
+echo   Step 1: this script installs and starts the bridge.
+echo   Step 2: Chrome will open. Load the extension folder.
 echo.
 
-if not exist "%BRIDGE_DIR%" mkdir "%BRIDGE_DIR%"
-
-copy /y "%~dp0bridge\server.js" "%BRIDGE_DIR%\" >nul
-copy /y "%~dp0bridge\safety.js" "%BRIDGE_DIR%\" >nul
-copy /y "%~dp0bridge\workflows.js" "%BRIDGE_DIR%\" >nul
-copy /y "%~dp0bridge\file-actions.js" "%BRIDGE_DIR%\" >nul
-copy /y "%~dp0bridge\project-scan.js" "%BRIDGE_DIR%\" >nul
-copy /y "%~dp0bridge\package.json" "%BRIDGE_DIR%\" >nul
-if not exist "%BRIDGE_DIR%\cc_devtools" mkdir "%BRIDGE_DIR%\cc_devtools"
-xcopy /e /i /y "%~dp0cc_devtools\skills" "%BRIDGE_DIR%\cc_devtools\skills" >nul
-
-cd /d "%BRIDGE_DIR%"
-echo   Running npm install...
-call npm install --loglevel=error
-
-if %errorlevel% neq 0 (
-    echo   npm failed, trying offline method...
-    cd /d "%TEMP%"
-    if exist cc-dt rmdir /s /q cc-dt
-    mkdir cc-dt
-    cd cc-dt
-    call npm pack ws --loglevel=error
-    if exist ws-*.tgz (
-        for %%f in (ws-*.tgz) do (
-            if not exist "%BRIDGE_DIR%\node_modules\ws" mkdir "%BRIDGE_DIR%\node_modules\ws"
-            tar xzf %%f --strip-components=1 -C "%BRIDGE_DIR%\node_modules\ws"
-        )
+echo   [1/5] Detect Python
+set "PYTHON=python"
+where python >nul 2>&1
+if errorlevel 1 (
+    where py >nul 2>&1
+    if errorlevel 1 (
+        echo   [ERR] Python 3.9+ was not found.
+        echo   Install Python from https://www.python.org/downloads/
+        echo   Re-run this install.bat after Python is available in PATH.
+        echo.
+        pause
+        exit /b 1
     )
-    cd /d "%BRIDGE_DIR%"
-    rmdir /s /q "%TEMP%\cc-dt" 2>nul
+    set "PYTHON=py -3"
 )
+for /f "tokens=*" %%v in ('%PYTHON% --version 2^>^&1') do echo   Python: %%v
+echo.
 
-node -e "require('./node_modules/ws')" >nul 2>&1
-if %errorlevel% neq 0 (
-    echo   [ERR] ws module install failed
-    echo   Try moving project to D:\ and re-run
+echo   [2/5] Install cc-devtools Python bridge
+echo   Running: python -m pip install -e "%ROOT%"
+call %PYTHON% -m pip install -e "%ROOT%"
+if errorlevel 1 (
+    echo.
+    echo   [ERR] Python package install failed.
+    echo   Check the error above, then re-run install.bat.
+    echo.
     pause
     exit /b 1
 )
-echo   Bridge Server OK
+echo   Python bridge OK
 echo.
 
-REM --- Generate icons ---
-echo   [2/3] Generate icons...
-cd /d "%~dp0bridge"
-node generate-icons.js
-if %errorlevel% neq 0 (
-    echo   [WARN] Icon generation failed
+echo   [3/5] Detect CLI AI command
+if defined CC_DEVTOOLS_CMD (
+    set "AI_CMD=%CC_DEVTOOLS_CMD%"
+) else (
+    for /f "delims=" %%C in ('where cc 2^>nul') do if not defined AI_CMD set "AI_CMD=%%C"
+    if not defined AI_CMD (
+        for /f "delims=" %%C in ('where claude 2^>nul') do if not defined AI_CMD set "AI_CMD=%%C"
+    )
 )
+
+if not defined AI_CMD (
+    echo   [ERR] Claude Code CLI was not found.
+    echo   Install Claude Code and make sure either cc or claude works in a terminal.
+    echo   If you use a custom command, set CC_DEVTOOLS_CMD before running this script.
+    echo.
+    pause
+    exit /b 1
+)
+echo   CLI AI: %AI_CMD%
+call %AI_CMD% --version
 echo.
 
-REM --- Create start script ---
-echo   [3/3] Create start-bridge.bat...
-cd /d "%~dp0"
+echo   [4/5] Prepare bridge port localhost:%PORT%
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /C:":%PORT%" ^| findstr "LISTENING"') do (
+    if not "%%P"=="0" (
+        echo   Stopping existing process on port %PORT%: %%P
+        taskkill /F /PID %%P >nul 2>&1
+    )
+)
+echo   Port %PORT% ready
+echo.
+
+echo   [5/5] Create and start start-bridge.bat
 (
 echo @echo off
+echo setlocal EnableExtensions
 echo title CC DevTools Bridge
-echo cd /d "%BRIDGE_DIR%"
+echo set "CC_DEVTOOLS_PORT=%PORT%"
+echo set "CC_DEVTOOLS_WRITE_ROOT=%WRITE_ROOT%"
+echo set "CC_DEVTOOLS_CMD=%AI_CMD%"
+echo set "CC_DEVTOOLS_LOG=%LOG_PATH%"
+echo cd /d "%ROOT%"
 echo echo.
 echo echo   CC DevTools Bridge Server
-echo echo   ws://localhost:9876
+echo echo   ws://localhost:%PORT%
+echo echo   Write root: %%CC_DEVTOOLS_WRITE_ROOT%%
+echo echo   CLI AI: %%CC_DEVTOOLS_CMD%%
+echo echo   Log file: %%CC_DEVTOOLS_LOG%%
 echo echo.
-echo node server.js
+echo echo   Keep this window open while using the F12 panel.
+echo echo   If chat fails while connected, run:
+echo echo   %%CC_DEVTOOLS_CMD%% -p --permission-mode bypassPermissions --output-format json "Reply OK"
+echo echo.
+echo rem cc-devtools
+echo %PYTHON% -m cc_devtools.server
+echo set "BRIDGE_EXIT=%%ERRORLEVEL%%"
+echo echo.
+echo echo   Bridge stopped with exit code %%BRIDGE_EXIT%%.
+echo echo   The F12 panel can only stay connected while this bridge is running.
 echo echo.
 echo pause
-) > start-bridge.bat
-echo   Done
+echo exit /b %%BRIDGE_EXIT%%
+) > "%START_SCRIPT%"
+
+start "CC DevTools Bridge" "%START_SCRIPT%"
 
 echo.
-echo   ======================================
-echo     Install Complete
-echo   ======================================
+echo   Opening Chrome extension setup...
+start "" "chrome://extensions"
+explorer "%EXT_DIR%"
+
 echo.
-echo   Steps:
-echo     1. Double-click start-bridge.bat
-echo     2. Chrome: chrome://extensions
-echo     3. Enable "Developer mode"
-echo     4. "Load unpacked" -^> select:
-echo        %~dp0extension
-echo     5. F12 on any page -^> "Claude Code" tab
+echo   ==========================================
+echo     Install complete
+echo   ==========================================
+echo.
+echo   Chrome step:
+echo     1. Enable Developer mode
+echo     2. Click Load unpacked
+echo     3. Select this folder:
+echo        %EXT_DIR%
+echo     4. Open any web page, press F12, choose Claude Code
+echo.
+echo   After this, double-click start-bridge.bat only if you restart Windows
+echo   or close the bridge window.
+echo   Local file actions are limited to:
+echo     %WRITE_ROOT%
+echo   Bridge log:
+echo     %LOG_PATH%
 echo.
 pause

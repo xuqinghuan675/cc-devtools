@@ -1,6 +1,8 @@
 import asyncio
+from datetime import datetime
 import json
 import os
+from pathlib import Path
 import subprocess
 
 import websockets
@@ -21,6 +23,7 @@ PORT = int(os.environ.get("CC_DEVTOOLS_PORT", "9876"))
 CC_CMD = os.environ.get("CC_DEVTOOLS_CMD", "cc")
 IS_WINDOWS = os.name == "nt"
 WRITE_ROOT = get_write_root()
+CLI_LOG_PATH = Path(os.environ.get("CC_DEVTOOLS_LOG") or (Path.cwd() / "cc-devtools-bridge.log"))
 
 SYSTEM_PROMPT = """你是一个网页助手，通过 Chrome DevTools 扩展与用户沟通。你可以直接操作和检查当前网页。
 
@@ -94,24 +97,92 @@ def build_prompt(messages, page_context, workflow=None, project_context=None):
     return "\n".join(parts)
 
 
+def _tail(text, limit=1200):
+    if not text:
+        return ""
+    text = str(text).strip()
+    return text[-limit:]
+
+
+def _command_display(command):
+    try:
+        return subprocess.list2cmdline(command)
+    except Exception:
+        return " ".join(str(part) for part in command)
+
+
+def _write_cli_log(command, result=None, error=None, prompt_length=0):
+    try:
+        CLI_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        lines = [
+            "",
+            f"[{datetime.now().isoformat(timespec='seconds')}] cc-devtools CLI call",
+            f"cwd={Path.cwd()}",
+            f"command={_command_display(command)}",
+            f"prompt_length={prompt_length}",
+        ]
+        if result is not None:
+            stdout = result.stdout or ""
+            stderr = result.stderr or ""
+            lines.extend([
+                f"returncode={result.returncode}",
+                f"stdout_length={len(stdout)}",
+                f"stderr_length={len(stderr)}",
+            ])
+            if stdout:
+                lines.append("stdout_tail=" + _tail(stdout))
+            if stderr:
+                lines.append("stderr_tail=" + _tail(stderr))
+        if error is not None:
+            lines.append(f"error={type(error).__name__}: {error}")
+        CLI_LOG_PATH.write_text(
+            (CLI_LOG_PATH.read_text(encoding="utf-8") if CLI_LOG_PATH.exists() else "")
+            + "\n".join(lines)
+            + "\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+def _response_content(response):
+    for key in ("content", "result", "message"):
+        if key in response and response[key] is not None:
+            return str(response[key])
+    return json.dumps(response, ensure_ascii=False)
+
+
 def call_cc(prompt):
+    command = [CC_CMD, "-p", "--permission-mode", "bypassPermissions", "--output-format", "json"]
     try:
         result = subprocess.run(
-            [CC_CMD, "-p", "--permission-mode", "bypassPermissions", "--output-format", "json"],
+            command,
             input=prompt,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=120,
             shell=IS_WINDOWS,
         )
+        _write_cli_log(command, result=result, prompt_length=len(prompt))
         if result.returncode != 0:
-            raise RuntimeError(f"CC exited with code {result.returncode}: {result.stderr}")
+            stderr = _tail(result.stderr)
+            raise RuntimeError(
+                f"CC exited with code {result.returncode}. "
+                f"Command: {_command_display(command)}. Stderr: {stderr}. Log: {CLI_LOG_PATH}"
+            )
 
         stdout = result.stdout
         if not stdout or not stdout.strip():
             stderr = (result.stderr or "").strip()
-            detail = f" Stderr: {stderr}" if stderr else ""
-            raise RuntimeError(f"CC command returned no output. Check CC_DEVTOOLS_CMD and CLI authentication.{detail}")
+            detail = f" Stderr: {_tail(stderr)}." if stderr else ""
+            raise RuntimeError(
+                "CC command returned no output. "
+                f"Command: {_command_display(command)}. "
+                f"Exit code: {result.returncode}.{detail} "
+                f"Check CC_DEVTOOLS_CMD and CLI authentication. Log: {CLI_LOG_PATH}"
+            )
 
         try:
             parsed = json.loads(stdout)
@@ -119,10 +190,16 @@ def call_cc(prompt):
             return {"content": stdout}
 
         if not isinstance(parsed, dict):
-            raise RuntimeError(f"CC command returned JSON {type(parsed).__name__}, expected JSON object")
+            raise RuntimeError(
+                f"CC command returned JSON {type(parsed).__name__}, expected JSON object. Log: {CLI_LOG_PATH}"
+            )
         return parsed
+    except FileNotFoundError as e:
+        _write_cli_log(command, error=e, prompt_length=len(prompt))
+        raise RuntimeError(f"CC command not found: {CC_CMD}. Set CC_DEVTOOLS_CMD. Log: {CLI_LOG_PATH}") from e
     except subprocess.TimeoutExpired:
-        raise RuntimeError("CC 响应超时 (2分钟)")
+        _write_cli_log(command, error="timeout", prompt_length=len(prompt))
+        raise RuntimeError(f"CC 响应超时 (2分钟). Command: {_command_display(command)}. Log: {CLI_LOG_PATH}")
 
 
 async def handle_connection(ws):
@@ -152,7 +229,7 @@ async def handle_connection(ws):
                 )
                 try:
                     response = await asyncio.to_thread(call_cc, prompt)
-                    content = response.get("content") or response.get("result") or response.get("message") or json.dumps(response)
+                    content = _response_content(response)
                     conversation.append({"role": "assistant", "content": content})
                     await ws.send(json.dumps({"type": "response", "content": content}))
                 except RuntimeError as e:
@@ -244,6 +321,8 @@ def main():
         async with serve(handle_connection, "localhost", PORT):
             print(f"CC DevTools Bridge 运行在 ws://localhost:{PORT}")
             print(f"文件写入目录: {WRITE_ROOT}")
+            print(f"CLI 命令: {CC_CMD}")
+            print(f"日志文件: {CLI_LOG_PATH}")
             print("按 Ctrl+C 停止")
             await asyncio.get_running_loop().create_future()
 
