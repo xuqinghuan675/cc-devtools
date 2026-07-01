@@ -10,6 +10,7 @@ const PLAN_ALLOWED_ACTIONS = new Set(['dom', 'dom:all', 'text', 'console', 'netw
 const AUTO_CONFIRM_ACTIONS = new Set(['eval', 'save', 'file:read', 'storage:set', 'storage:remove']);
 const EVIDENCE_ACTIONS = new Set(['eval', 'click', 'input', 'press', 'storage:set', 'storage:remove']);
 const DEFAULT_ACTION_RESULT_MAX_CHARS = 12000;
+const DEFAULT_FILE_READ_LIMIT = 20000;
 const MAX_NETWORK_REQUESTS = 200;
 
 let ws = null;
@@ -23,6 +24,7 @@ let manualCopyPayloads = {};
 let networkRequests = [];
 let nextNetworkRequestId = 1;
 let pickPollTimer = null;
+let conversationTokenCount = 0;
 
 const $ = (s) => document.querySelector(s);
 const messagesEl = $('#messages');
@@ -30,6 +32,7 @@ const inputEl = $('#input');
 const sendBtn = $('#send-btn');
 const statusEl = $('#status');
 const pageInfoEl = $('#page-info');
+const tokenUsageEl = $('#token-usage');
 const resetBtn = $('#reset-btn');
 const helpBtn = $('#help-btn');
 const helpPanel = $('#help-panel');
@@ -82,6 +85,7 @@ const UI_TEXT = {
     statusConnecting: 'Connecting...',
     statusDisconnected: 'Disconnected',
     statusReconnecting: 'Disconnected, reconnecting...',
+    tokenUsageTitle: 'Estimated current conversation token usage',
     workflow: 'Workflow',
     workflowTitle: 'Choose a DevTools workflow',
     workflows: {
@@ -99,6 +103,7 @@ const UI_TEXT = {
     },
   },
   zh: {
+    tokenUsageTitle: '\u5f53\u524d\u5bf9\u8bdd\u4f30\u7b97 token \u6d88\u8017',
     action: '动作',
     actionBlockedPlan: '计划模式已阻止该动作。切换到自动或 Bypass 后可执行。',
     actionConfirm: '执行这个高风险动作？',
@@ -218,6 +223,7 @@ function applyLocale() {
   if (helpTitleEl) helpTitleEl.textContent = t('helpTitle');
   if (inputEl) inputEl.placeholder = t('inputPlaceholder');
   if (sendBtn) sendBtn.textContent = t('send');
+  updateTokenUsageDisplay();
   if (statusEl && statusEl.textContent === 'Disconnected') {
     statusEl.textContent = t('statusDisconnected');
   }
@@ -254,6 +260,7 @@ function connect() {
     removeThinking();
 
     if (msg.type === 'response') {
+      addTokenUsageFromText(msg.content);
       renderAssistantMessage(msg.content);
     } else if (msg.type === 'error') {
       renderError(msg.message);
@@ -382,6 +389,7 @@ async function send(msg) {
     payload.pageContext = getPageContextSync();
   }
 
+  addTokenUsageFromPayload(payload);
   ws.send(JSON.stringify(payload));
 }
 
@@ -432,6 +440,71 @@ function clampNumber(value, fallback, min, max) {
   return Math.min(Math.max(Math.floor(parsed), min), max);
 }
 
+function trimScaledNumber(value) {
+  const precision = value < 10 ? 1 : 0;
+  return value.toFixed(precision).replace(/\.0$/, '');
+}
+
+function formatCompactTokenCount(count) {
+  const value = Math.max(0, Math.round(Number(count) || 0));
+  if (value >= 1000000) return `${trimScaledNumber(value / 1000000)}M`;
+  if (value >= 1000) return `${trimScaledNumber(value / 1000)}k`;
+  return String(value);
+}
+
+function estimateTextTokens(text) {
+  const value = String(text || '');
+  if (!value) return 0;
+  const cjkMatches = value.match(/[\u3400-\u9fff\uf900-\ufaff]/g) || [];
+  const nonCjk = value.replace(/[\u3400-\u9fff\uf900-\ufaff]/g, '');
+  return Math.max(1, cjkMatches.length + Math.ceil(nonCjk.length / 4));
+}
+
+function estimateValueTokens(value) {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === 'string') return estimateTextTokens(value);
+  if (typeof value === 'number' || typeof value === 'boolean') return estimateTextTokens(String(value));
+  if (Array.isArray(value)) {
+    return value.reduce((total, item) => total + estimateValueTokens(item), 0);
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value).reduce(
+      (total, [key, item]) => total + estimateTextTokens(key) + estimateValueTokens(item),
+      0,
+    );
+  }
+  return estimateTextTokens(String(value));
+}
+
+function updateTokenUsageDisplay() {
+  if (!tokenUsageEl) return;
+  tokenUsageEl.textContent = `Tokens: ${formatCompactTokenCount(conversationTokenCount)}`;
+  tokenUsageEl.title = t('tokenUsageTitle');
+}
+
+function resetTokenUsage() {
+  conversationTokenCount = 0;
+  updateTokenUsageDisplay();
+}
+
+function addTokenUsage(count) {
+  conversationTokenCount += Math.max(0, Math.round(Number(count) || 0));
+  updateTokenUsageDisplay();
+}
+
+function addTokenUsageFromPayload(payload) {
+  addTokenUsage(
+    estimateValueTokens(payload && payload.content)
+    + estimateValueTokens(payload && payload.actionResults)
+    + estimateValueTokens(payload && payload.pageContext)
+    + estimateValueTokens(payload && payload.projectContext),
+  );
+}
+
+function addTokenUsageFromText(text) {
+  addTokenUsage(estimateTextTokens(text));
+}
+
 function parseDomAllOptions(code) {
   const payload = parseJsonPayload(code);
   const options = payload && !Array.isArray(payload)
@@ -444,6 +517,22 @@ function parseDomAllOptions(code) {
     limit: clampNumber(options.limit, 25, 1, 200),
     format: options.format === 'summary' ? 'summary' : 'html',
     maxChars: clampNumber(options.maxChars, DEFAULT_ACTION_RESULT_MAX_CHARS, 1000, 50000),
+  };
+}
+
+function parseFileReadPayload(code) {
+  const payload = parseJsonPayload(code);
+  if (payload && !Array.isArray(payload)) {
+    return {
+      path: String(payload.path || '').trim(),
+      offset: clampNumber(payload.offset, 0, 0, 100000000),
+      limit: clampNumber(payload.limit, DEFAULT_FILE_READ_LIMIT, 1, 100000),
+    };
+  }
+  return {
+    path: String(code || '').trim(),
+    offset: 0,
+    limit: DEFAULT_FILE_READ_LIMIT,
   };
 }
 
@@ -527,6 +616,14 @@ function truncateText(text, maxChars = DEFAULT_ACTION_RESULT_MAX_CHARS) {
   const limit = clampNumber(maxChars, DEFAULT_ACTION_RESULT_MAX_CHARS, 1000, 100000);
   if (value.length <= limit) return value;
   return `${value.substring(0, limit)}\n[truncated at ${limit} chars]`;
+}
+
+function actionResultMaxChars(action) {
+  if (action && action.type === 'file:read') {
+    const options = parseFileReadPayload(action.code);
+    return clampNumber(options.limit + 2000, DEFAULT_FILE_READ_LIMIT + 2000, 1000, 100000);
+  }
+  return DEFAULT_ACTION_RESULT_MAX_CHARS;
 }
 
 function networkEntryKey(entry) {
@@ -949,7 +1046,7 @@ async function legacyExecuteAction(type, code) {
       return executeFileAction('file_list', { pattern: code.trim() || '**/*' });
 
     case 'file:read':
-      return executeFileAction('file_read', { path: code.trim() });
+      return executeFileAction('file_read', parseFileReadPayload(code));
 
     case 'project:scan':
       return executeFileAction('project_scan', {});
@@ -1027,7 +1124,7 @@ async function executeAction(type, code) {
       return executeFileAction('file_list', { pattern: code.trim() || '**/*' });
 
     case 'file:read':
-      return executeFileAction('file_read', { path: code.trim() });
+      return executeFileAction('file_read', parseFileReadPayload(code));
 
     case 'project:scan':
       return executeFileAction('project_scan', {});
@@ -1128,12 +1225,39 @@ function executeInput(selector, value) {
         setNativeValue(node, match ? match.value : nextValue);
       }
 
+      function selectEditableContents(node) {
+        if (!window.getSelection || !document.createRange) return false;
+        var range = document.createRange();
+        range.selectNodeContents(node);
+        var selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return true;
+      }
+
+      function insertEditableText(node, nextValue) {
+        node.focus();
+        try {
+          if (
+            selectEditableContents(node) &&
+            typeof document.execCommand === 'function' &&
+            document.execCommand('insertText', false, nextValue)
+          ) {
+            return true;
+          }
+        } catch {
+          // Fall through to the textContent fallback below.
+        }
+        if (node.textContent !== nextValue) node.textContent = nextValue;
+        return false;
+      }
+
       function setElementValue(node, nextValue) {
         var tag = (node.tagName || '').toLowerCase();
         var role = node.getAttribute ? node.getAttribute('role') : '';
         var isTextboxLike = node.isContentEditable || (!('value' in node) && role === 'textbox');
         if (isTextboxLike) {
-          if (node.textContent !== nextValue) node.textContent = nextValue;
+          insertEditableText(node, nextValue);
           return;
         }
         if (tag === 'select') {
@@ -1409,6 +1533,17 @@ function actionEvidenceTextChanged(before, after) {
   return beforeText === afterText ? 'no' : 'yes';
 }
 
+function compactEvidenceValue(value, maxChars = 160) {
+  const text = String(value || '');
+  return text.length <= maxChars ? text : `${text.slice(0, maxChars - 3)}...`;
+}
+
+function compactEvidenceList(items, limit, maxItemChars) {
+  const values = items.slice(0, limit).map((item) => compactEvidenceValue(item, maxItemChars));
+  if (items.length > limit) values.push(`+${items.length - limit} more`);
+  return values.join(' | ');
+}
+
 function formatActionEvidence(before, after) {
   if (!after) return '';
   if (after.error) return `Verification evidence:\nEvidence collection failed: ${after.error}`;
@@ -1420,21 +1555,14 @@ function formatActionEvidence(before, after) {
     lines.push(`URL: ${after.url}`);
   }
 
-  if (before && before.title) {
-    lines.push(before.title === after.title ? `Title: ${after.title} (unchanged)` : `Title: ${before.title} -> ${after.title}`);
-  } else if (after.title) {
-    lines.push(`Title: ${after.title}`);
-  }
-
   lines.push(`Text changed: ${actionEvidenceTextChanged(before, after)}`);
-  if (after.active) lines.push(`Active: ${after.active}`);
+  if (after.active) lines.push(`Active: ${compactEvidenceValue(after.active)}`);
   if (Array.isArray(after.inputs) && after.inputs.length > 0) {
-    lines.push(`Inputs: ${after.inputs.slice(0, 4).join(' | ')}`);
+    lines.push(`Inputs: ${compactEvidenceList(after.inputs, 3, 140)}`);
   }
   if (Array.isArray(after.buttons) && after.buttons.length > 0) {
-    lines.push(`Buttons: ${after.buttons.slice(0, 6).join(' | ')}`);
+    lines.push(`Buttons: ${compactEvidenceList(after.buttons, 4, 120)}`);
   }
-  lines.push('Do not declare success or failure from dispatch alone; use URL, DOM, and text evidence, or say evidence is insufficient.');
   return lines.join('\n');
 }
 
@@ -1803,7 +1931,7 @@ async function executeActions(actions) {
       result = formatActionResultWithEvidence(result, beforeEvidence, afterEvidence);
     }
     const resultText = redactSensitiveText(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
-    const short = truncateText(resultText, DEFAULT_ACTION_RESULT_MAX_CHARS);
+    const short = truncateText(resultText, actionResultMaxChars(a));
 
     const key = `[${a.type}] ${a.code.substring(0, 50)}`;
     actionResults[key] = short;
@@ -1880,6 +2008,7 @@ inputEl.addEventListener('input', () => {
 
 resetBtn.addEventListener('click', () => {
   actionRoundCount = 0;
+  resetTokenUsage();
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'reset' }));
   }

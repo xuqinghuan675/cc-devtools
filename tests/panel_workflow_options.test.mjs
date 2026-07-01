@@ -45,6 +45,7 @@ function loadLocalizedPanelContext(language = 'zh-CN') {
     '#send-btn',
     '#status',
     '#page-info',
+    '#token-usage',
     '#reset-btn',
     '#help-btn',
     '#help-panel',
@@ -89,6 +90,8 @@ test('panel exposes the Frontend Loop workflow mode', () => {
   assert.match(packagedHtml, /<select id="permission-mode-select"/);
   assert.match(html, /<input id="max-action-rounds"/);
   assert.match(packagedHtml, /<input id="max-action-rounds"/);
+  assert.match(html, /id="token-usage"/);
+  assert.match(packagedHtml, /id="token-usage"/);
   assert.match(html, /<button id="pick-btn"/);
   assert.match(packagedHtml, /<button id="pick-btn"/);
   assert.match(html, /\[ACTION:storage:list\]localStorage\[\/ACTION\]/);

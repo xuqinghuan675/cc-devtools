@@ -80,6 +80,21 @@ def _format_project_context(project_context):
     return json.dumps(project_context, ensure_ascii=False, indent=2)[:6000]
 
 
+def _escape_action_tags(text):
+    return (
+        str(text)
+        .replace("[ACTION:", "[ACTION\u200c:")
+        .replace("[/ACTION]", "[/\u200cACTION]")
+    )
+
+
+def _format_action_results_for_prompt(action_results):
+    lines = ["\u64cd\u4f5c\u7ed3\u679c:"]
+    for key, val in action_results.items():
+        lines.append(f"[{_escape_action_tags(key)}]: {_escape_action_tags(val)}")
+    return "\n".join(lines) + "\n"
+
+
 def _truthy_env(name):
     return os.environ.get(name, "").strip().lower() in TRUTHY_VALUES
 
@@ -371,10 +386,10 @@ async def handle_connection(ws):
                 conversation.append({"role": "user", "content": msg.get("content", "")})
 
                 if msg.get("actionResults"):
-                    results = "操作结果:\n"
-                    for key, val in msg["actionResults"].items():
-                        results += f"[{key}]: {val}\n"
-                    conversation.append({"role": "user", "content": results})
+                    conversation.append({
+                        "role": "user",
+                        "content": _format_action_results_for_prompt(msg["actionResults"]),
+                    })
 
                 prompt = build_prompt(
                     conversation,
@@ -433,7 +448,12 @@ async def handle_connection(ws):
 
             elif msg.get("type") == "file_read":
                 try:
-                    content = read_file(msg["path"], WRITE_ROOT)
+                    content = read_file(
+                        msg["path"],
+                        WRITE_ROOT,
+                        offset=msg.get("offset", 0),
+                        limit=msg.get("limit"),
+                    )
                     await ws.send(json.dumps({
                         "type": "file_result",
                         "id": msg["id"],

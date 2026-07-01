@@ -6,6 +6,7 @@ import { resolveWritePath } from './safety.js';
 const EXCLUDED_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', '__pycache__']);
 const MAX_FILES = 200;
 const MAX_READ_CHARS = 20000;
+const MAX_READ_LIMIT = 100000;
 
 function isExcluded(relPath) {
   return relPath.split(/[\\/]/).some((part) => EXCLUDED_DIRS.has(part) || part.endsWith('.egg-info'));
@@ -56,10 +57,34 @@ export function listFiles(root, pattern = '**/*') {
   return results.sort();
 }
 
-export function readFileInsideRoot(path, root) {
+function clampInt(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(Math.floor(parsed), min), max);
+}
+
+function nextReadAction(path, offset, limit) {
+  const payload = JSON.stringify({ path, offset, limit });
+  return `Next: [ACTION:file:read]${payload}[/ACTION]`;
+}
+
+export function readFileInsideRoot(path, root, options = {}) {
   const filePath = resolveWritePath(path, root);
   if (!statSync(filePath).isFile()) {
     throw new Error(`file not found: ${path}`);
   }
-  return readFileSync(filePath, 'utf8').slice(0, MAX_READ_CHARS);
+  const content = readFileSync(filePath, 'utf8');
+  const total = content.length;
+  const start = clampInt(options.offset, 0, 0, total);
+  const limit = clampInt(options.limit, MAX_READ_CHARS, 1, MAX_READ_LIMIT);
+  const end = Math.min(start + limit, total);
+  const page = content.slice(start, end);
+
+  if (end < total) {
+    return `${page}\n[truncated at ${end} of ${total} chars]\n${nextReadAction(path, end, limit)}`;
+  }
+  if (start > 0) {
+    return `[file page ${start}-${end} of ${total} chars]\n${page}`;
+  }
+  return page;
 }

@@ -89,6 +89,9 @@ text to type
 [ACTION:file:read]path[/ACTION]
     Read a local project file under the bridge write root.
     Example: [ACTION:file:read]src/data/countries.json[/ACTION]
+    Large files return a next-page hint when truncated. You can request a page
+    explicitly with JSON:
+    [ACTION:file:read]{"path":"src/App.jsx","offset":12000,"limit":8000}[/ACTION]
 
 [ACTION:save]path
 file content from the next line

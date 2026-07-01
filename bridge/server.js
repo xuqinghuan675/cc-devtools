@@ -193,6 +193,20 @@ function callCC(prompt, permissionMode) {
   });
 }
 
+function escapeActionTags(text) {
+  return String(text)
+    .replaceAll('[ACTION:', '[ACTION\u200c:')
+    .replaceAll('[/ACTION]', '[/\u200cACTION]');
+}
+
+function formatActionResultsForPrompt(actionResults) {
+  const lines = ['\u64cd\u4f5c\u7ed3\u679c:'];
+  for (const [actionId, result] of Object.entries(actionResults)) {
+    lines.push(`[${escapeActionTags(actionId)}]: ${escapeActionTags(result)}`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
 const server = createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -233,11 +247,7 @@ wss.on('connection', (ws) => {
       conversation.push(userMessage);
 
       if (msg.actionResults) {
-        let resultsText = '操作结果:\n';
-        for (const [actionId, result] of Object.entries(msg.actionResults)) {
-          resultsText += `[${actionId}]: ${result}\n`;
-        }
-        conversation.push({ role: 'user', content: resultsText });
+        conversation.push({ role: 'user', content: formatActionResultsForPrompt(msg.actionResults) });
       }
 
       const prompt = buildPrompt(conversation, msg.pageContext, msg.workflow, msg.projectContext);
@@ -282,7 +292,7 @@ wss.on('connection', (ws) => {
           type: 'file_result',
           id: msg.id,
           success: true,
-          result: readFileInsideRoot(msg.path, WRITE_ROOT)
+          result: readFileInsideRoot(msg.path, WRITE_ROOT, { offset: msg.offset, limit: msg.limit })
         }));
       } catch (err) {
         ws.send(JSON.stringify({ type: 'file_result', id: msg.id, success: false, error: err.message }));

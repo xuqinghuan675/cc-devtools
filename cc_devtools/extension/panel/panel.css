@@ -94,6 +94,15 @@ button, select, textarea { font: inherit; }
   line-height: 1;
 }
 
+#token-usage {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  color: var(--soft);
+  font: 10px/1 var(--mono);
+  white-space: nowrap;
+}
+
 #status::before {
   content: "";
   width: 7px;

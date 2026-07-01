@@ -164,8 +164,29 @@ test('executeInput script uses native value setters and avoids innerHTML injecti
   assert.match(script, /HTMLInputElement\.prototype/);
   assert.match(script, /HTMLTextAreaElement\.prototype/);
   assert.match(script, /InputEvent/);
+  assert.match(script, /execCommand\('insertText'/);
   assert.match(script, /textContent/);
   assert.doesNotMatch(script, /\.innerHTML\s*=/);
+});
+
+test('formatActionEvidence keeps verification evidence compact', () => {
+  const context = loadPanelContext();
+
+  const result = context.formatActionEvidence(
+    { url: 'http://localhost/app', title: 'App', textSample: 'same' },
+    {
+      url: 'http://localhost/app',
+      title: 'App',
+      textSample: 'same',
+      active: 'textarea#prompt value="hello"',
+      inputs: ['textarea#prompt value="hello"', 'input#search value="query"', 'select#country value="Singapore"', 'input#extra value="ignored"'],
+      buttons: ['button Send', 'button Cancel', 'button Verify', 'button Reset', 'button More'],
+    },
+  );
+
+  assert.ok(result.split('\n').length <= 6);
+  assert.doesNotMatch(result, /Do not declare success or failure/);
+  assert.match(result, /Buttons: button Send/);
 });
 
 test('plan mode blocks mutating and code-execution actions', async () => {

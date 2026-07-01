@@ -26,6 +26,17 @@ class FileActionTests(unittest.TestCase):
 
             self.assertEqual(read_file("data/countries.json", root), '[{"code":"US"}]')
 
+    def test_read_file_marks_truncated_output_with_next_action_hint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "large.txt").write_text("x" * 20005, encoding="utf-8")
+
+            result = read_file("large.txt", root)
+
+            self.assertIn("[truncated at 20000 of 20005 chars]", result)
+            self.assertIn('"offset":20000', result)
+            self.assertIn("[ACTION:file:read]", result)
+
     def test_list_files_matches_case_insensitive_simple_glob(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

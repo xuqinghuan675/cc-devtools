@@ -28,11 +28,13 @@ function loadPanelContext(options = {}) {
   const workflowEl = { ...emptyEl, value: 'local-data-patch' };
   const permissionModeEl = { ...emptyEl, value: 'auto' };
   const maxActionRoundsEl = { ...emptyEl, value: '5' };
+  const tokenUsageEl = { ...emptyEl };
   const context = {
     __sentMessages: sentMessages,
     __workflowEl: workflowEl,
     __permissionModeEl: permissionModeEl,
     __maxActionRoundsEl: maxActionRoundsEl,
+    __tokenUsageEl: tokenUsageEl,
     clearTimeout() {},
     console,
     document: {
@@ -42,6 +44,7 @@ function loadPanelContext(options = {}) {
         if (selector === '#workflow-select') return workflowEl;
         if (selector === '#permission-mode-select') return permissionModeEl;
         if (selector === '#max-action-rounds') return maxActionRoundsEl;
+        if (selector === '#token-usage') return tokenUsageEl;
         return { ...emptyEl };
       },
     },
@@ -118,6 +121,25 @@ test('buildChatPayload includes configured action round limit', () => {
   const payload = context.buildChatPayload({ content: 'continue carefully' });
 
   assert.equal(payload.maxActionRounds, 9);
+});
+
+test('token usage estimate formats as raw, k, and M units', () => {
+  const context = loadPanelContext();
+
+  assert.equal(context.formatCompactTokenCount(999), '999');
+  assert.equal(context.formatCompactTokenCount(1500), '1.5k');
+  assert.equal(context.formatCompactTokenCount(1200000), '1.2M');
+});
+
+test('token usage display accumulates chat payload text', () => {
+  const context = loadPanelContext();
+
+  context.resetTokenUsage();
+  context.addTokenUsageFromPayload({ content: 'a'.repeat(4000), actionResults: null });
+  assert.equal(context.__tokenUsageEl.textContent, 'Tokens: 1k');
+
+  context.addTokenUsageFromPayload({ content: '', actionResults: { '[title]': 'b'.repeat(4000) } });
+  assert.equal(context.__tokenUsageEl.textContent, 'Tokens: 2k');
 });
 
 test('send auto-attaches project context in Frontend Loop mode', async () => {
@@ -288,6 +310,28 @@ test('network detail includes headers, post data, timings and response preview',
   assert.match(result, /Initiator/);
   assert.ok(!result.includes('secret-value'));
   assert.ok(!result.includes('abc123'));
+});
+
+test('file read action accepts JSON pagination payloads', async () => {
+  const context = loadPanelContext();
+
+  const resultPromise = context.executeAction(
+    'file:read',
+    '{"path":"src/App.jsx","offset":12000,"limit":4000}',
+  );
+
+  const msg = context.__sentMessages[0];
+  assert.equal(msg.type, 'file_read');
+  assert.equal(msg.path, 'src/App.jsx');
+  assert.equal(msg.offset, 12000);
+  assert.equal(msg.limit, 4000);
+
+  vm.runInContext(
+    `pendingFileActions[${JSON.stringify(msg.id)}]({ id: ${JSON.stringify(msg.id)}, type: 'file_result', success: true, result: 'page text' })`,
+    context,
+  );
+
+  assert.equal(await resultPromise, 'page text');
 });
 
 test('packaged and load-unpacked panel scripts stay synchronized', () => {

@@ -1,4 +1,5 @@
 import fnmatch
+import json
 from pathlib import Path
 
 try:
@@ -10,6 +11,7 @@ except ImportError:
 EXCLUDED_DIRS = {".git", "node_modules", "dist", "build", "__pycache__"}
 MAX_FILES = 200
 MAX_READ_CHARS = 20000
+MAX_READ_LIMIT = 100000
 
 
 def _is_excluded(path):
@@ -58,8 +60,40 @@ def list_files(root, pattern="**/*"):
     return sorted(results)
 
 
-def read_file(path, root):
+def _clamp_int(value, default, minimum, maximum):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return min(max(parsed, minimum), maximum)
+
+
+def _format_next_read_action(path, offset, limit):
+    payload = json.dumps(
+        {"path": str(path), "offset": offset, "limit": limit},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return f"Next: [ACTION:file:read]{payload}[/ACTION]"
+
+
+def read_file(path, root, offset=0, limit=MAX_READ_CHARS):
     file_path = resolve_write_path(path, root)
     if not file_path.is_file():
         raise ValueError(f"file not found: {path}")
-    return file_path.read_text(encoding="utf-8", errors="replace")[:MAX_READ_CHARS]
+    content = file_path.read_text(encoding="utf-8", errors="replace")
+    total = len(content)
+    start = _clamp_int(offset, 0, 0, total)
+    read_limit = _clamp_int(limit, MAX_READ_CHARS, 1, MAX_READ_LIMIT)
+    end = min(start + read_limit, total)
+    page = content[start:end]
+
+    if end < total:
+        return (
+            f"{page}\n"
+            f"[truncated at {end} of {total} chars]\n"
+            f"{_format_next_read_action(path, end, read_limit)}"
+        )
+    if start > 0:
+        return f"[file page {start}-{end} of {total} chars]\n{page}"
+    return page

@@ -24,6 +24,17 @@ test('readFileInsideRoot reads text inside root', () => {
   assert.equal(readFileInsideRoot('data/countries.json', root), '[{"code":"US"}]');
 });
 
+test('readFileInsideRoot marks truncated output with next action hint', () => {
+  const root = mkdtempSync(join(tmpdir(), 'cc-devtools-'));
+  writeFileSync(join(root, 'large.txt'), 'x'.repeat(20005));
+
+  const result = readFileInsideRoot('large.txt', root);
+
+  assert.match(result, /\[truncated at 20000 of 20005 chars\]/);
+  assert.match(result, /"offset":20000/);
+  assert.match(result, /\[ACTION:file:read\]/);
+});
+
 test('listFiles matches case-insensitive simple globs', () => {
   const root = mkdtempSync(join(tmpdir(), 'cc-devtools-'));
   mkdirSync(join(root, 'src'));
