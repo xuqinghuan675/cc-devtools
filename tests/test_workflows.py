@@ -17,6 +17,8 @@ class WorkflowPromptTests(unittest.TestCase):
         self.assertIn("Frontend Loop", prompt)
         self.assertIn("[ACTION:project:scan][/ACTION]", prompt)
         self.assertIn("[ACTION:click]", prompt)
+        self.assertIn("Verification evidence", prompt)
+        self.assertIn("third attempt", prompt)
         self.assertIn("Singapore", prompt)
 
     def test_unknown_workflow_falls_back_to_inspect(self):

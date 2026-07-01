@@ -16,6 +16,8 @@ test('frontend loop workflow is loaded', () => {
   assert.match(prompt, /Frontend Loop/);
   assert.match(prompt, /\[ACTION:project:scan\]\[\/ACTION\]/);
   assert.match(prompt, /\[ACTION:click\]/);
+  assert.match(prompt, /Verification evidence/);
+  assert.match(prompt, /third attempt/);
   assert.match(prompt, /Singapore/);
 });
 

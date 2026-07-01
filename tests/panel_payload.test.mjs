@@ -27,10 +27,12 @@ function loadPanelContext(options = {}) {
   };
   const workflowEl = { ...emptyEl, value: 'local-data-patch' };
   const permissionModeEl = { ...emptyEl, value: 'auto' };
+  const maxActionRoundsEl = { ...emptyEl, value: '5' };
   const context = {
     __sentMessages: sentMessages,
     __workflowEl: workflowEl,
     __permissionModeEl: permissionModeEl,
+    __maxActionRoundsEl: maxActionRoundsEl,
     clearTimeout() {},
     console,
     document: {
@@ -39,6 +41,7 @@ function loadPanelContext(options = {}) {
       querySelector: (selector) => {
         if (selector === '#workflow-select') return workflowEl;
         if (selector === '#permission-mode-select') return permissionModeEl;
+        if (selector === '#max-action-rounds') return maxActionRoundsEl;
         return { ...emptyEl };
       },
     },
@@ -106,6 +109,15 @@ test('buildChatPayload includes selected permission mode', () => {
   const payload = context.buildChatPayload({ content: 'prepare a change plan' });
 
   assert.equal(payload.permissionMode, 'plan');
+});
+
+test('buildChatPayload includes configured action round limit', () => {
+  const context = loadPanelContext();
+  context.__maxActionRoundsEl.value = '9';
+
+  const payload = context.buildChatPayload({ content: 'continue carefully' });
+
+  assert.equal(payload.maxActionRounds, 9);
 });
 
 test('send auto-attaches project context in Frontend Loop mode', async () => {

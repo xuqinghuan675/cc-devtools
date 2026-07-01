@@ -34,8 +34,11 @@ function loadLocalizedPanelContext(language = 'zh-CN') {
     { value: 'plan', textContent: 'Plan' },
     { value: 'bypassPermissions', textContent: 'Bypass' },
   ];
+  const maxActionRoundsInput = emptyEl();
+  maxActionRoundsInput.value = '5';
   elements.set('#workflow-select', workflowSelect);
   elements.set('#permission-mode-select', permissionModeSelect);
+  elements.set('#max-action-rounds', maxActionRoundsInput);
   for (const selector of [
     '#messages',
     '#input',
@@ -49,6 +52,7 @@ function loadLocalizedPanelContext(language = 'zh-CN') {
     '#page-context-btn',
     '#workflow-control span',
     '#permission-mode-control span',
+    '#action-rounds-control span',
     '.help-title',
   ]) {
     if (!elements.has(selector)) elements.set(selector, emptyEl());
@@ -83,6 +87,8 @@ test('panel exposes the Frontend Loop workflow mode', () => {
   assert.match(packagedHtml, /<option value="frontend-loop">Frontend Loop<\/option>/);
   assert.match(html, /<select id="permission-mode-select"/);
   assert.match(packagedHtml, /<select id="permission-mode-select"/);
+  assert.match(html, /<input id="max-action-rounds"/);
+  assert.match(packagedHtml, /<input id="max-action-rounds"/);
   assert.match(html, /<button id="pick-btn"/);
   assert.match(packagedHtml, /<button id="pick-btn"/);
   assert.match(html, /\[ACTION:storage:list\]localStorage\[\/ACTION\]/);

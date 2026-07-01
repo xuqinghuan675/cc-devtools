@@ -1,9 +1,14 @@
 const WS_URL = 'ws://localhost:9876';
 const ACTION_RE = /\[ACTION:(eval|dom|dom:all|text|console|network|title|url|save|copy|click|input|press|file:list|file:read|project:scan|storage:list|storage:get|storage:set|storage:remove)\]([\s\S]*?)\[\/ACTION\]/g;
-const MAX_ACTION_ROUNDS = 5;
+const DEFAULT_MAX_ACTION_ROUNDS = 5;
+const MIN_ACTION_ROUNDS = 1;
+const MAX_ACTION_ROUNDS_LIMIT = 25;
+const ACTION_EVIDENCE_DELAY_MS = 350;
 const TOKEN_STORAGE_KEYS = ['CC_DEVTOOLS_TOKEN', 'cc_devtools_token'];
+const ACTION_ROUNDS_STORAGE_KEY = 'CC_DEVTOOLS_MAX_ACTION_ROUNDS';
 const PLAN_ALLOWED_ACTIONS = new Set(['dom', 'dom:all', 'text', 'console', 'network', 'title', 'url', 'copy', 'file:list', 'project:scan', 'storage:list', 'storage:get']);
 const AUTO_CONFIRM_ACTIONS = new Set(['eval', 'save', 'file:read', 'storage:set', 'storage:remove']);
+const EVIDENCE_ACTIONS = new Set(['eval', 'click', 'input', 'press', 'storage:set', 'storage:remove']);
 const DEFAULT_ACTION_RESULT_MAX_CHARS = 12000;
 const MAX_NETWORK_REQUESTS = 200;
 
@@ -32,6 +37,7 @@ const pickBtn = $('#pick-btn');
 const pageContextBtn = $('#page-context-btn');
 const workflowSelectEl = $('#workflow-select');
 const permissionModeSelectEl = $('#permission-mode-select');
+const maxActionRoundsEl = $('#max-action-rounds');
 
 const UI_TEXT = {
   en: {
@@ -67,6 +73,8 @@ const UI_TEXT = {
     reset: 'Reset',
     resetDone: 'Conversation reset',
     resetTitle: 'Reset conversation',
+    rounds: 'Rounds',
+    roundsTitle: 'Maximum automatic action-result rounds per user message',
     running: 'Running...',
     saveDisconnected: 'Save failed: Bridge Server is not connected',
     send: 'Send',
@@ -190,6 +198,9 @@ function applyLocale() {
       });
     }
   }
+  const actionRoundsLabelEl = document.querySelector('#action-rounds-control span');
+  if (actionRoundsLabelEl) actionRoundsLabelEl.textContent = t('rounds');
+  if (maxActionRoundsEl) maxActionRoundsEl.title = t('roundsTitle');
   if (pageContextBtn) {
     pageContextBtn.textContent = t('collect');
     pageContextBtn.title = t('collectTitle');
@@ -262,9 +273,14 @@ function connect() {
   };
 }
 
-function getBridgeToken() {
+function getPanelStorage() {
   const storage = (typeof localStorage !== 'undefined' && localStorage)
     || (typeof window !== 'undefined' && window.localStorage);
+  return storage || null;
+}
+
+function getBridgeToken() {
+  const storage = getPanelStorage();
   if (!storage) return '';
 
   for (const key of TOKEN_STORAGE_KEYS) {
@@ -277,6 +293,46 @@ function getBridgeToken() {
   }
 
   return '';
+}
+
+function getConfiguredMaxActionRounds() {
+  return clampNumber(
+    maxActionRoundsEl ? maxActionRoundsEl.value : DEFAULT_MAX_ACTION_ROUNDS,
+    DEFAULT_MAX_ACTION_ROUNDS,
+    MIN_ACTION_ROUNDS,
+    MAX_ACTION_ROUNDS_LIMIT,
+  );
+}
+
+function persistMaxActionRounds() {
+  if (!maxActionRoundsEl) return;
+  const value = getConfiguredMaxActionRounds();
+  maxActionRoundsEl.value = String(value);
+  const storage = getPanelStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(ACTION_ROUNDS_STORAGE_KEY, String(value));
+  } catch {
+    // Ignore storage failures; the in-memory control value still applies.
+  }
+}
+
+function initActionRoundControl() {
+  if (!maxActionRoundsEl) return;
+  const storage = getPanelStorage();
+  if (storage) {
+    try {
+      const saved = storage.getItem(ACTION_ROUNDS_STORAGE_KEY);
+      if (saved) {
+        maxActionRoundsEl.value = String(clampNumber(saved, DEFAULT_MAX_ACTION_ROUNDS, MIN_ACTION_ROUNDS, MAX_ACTION_ROUNDS_LIMIT));
+      }
+    } catch {
+      // Storage is best-effort only.
+    }
+  }
+  maxActionRoundsEl.value = String(getConfiguredMaxActionRounds());
+  maxActionRoundsEl.addEventListener('change', persistMaxActionRounds);
+  maxActionRoundsEl.addEventListener('blur', persistMaxActionRounds);
 }
 
 function buildWebSocketUrl() {
@@ -344,6 +400,7 @@ function buildChatPayload(msg) {
     content: msg.content || '',
     workflow,
     permissionMode: getSelectedPermissionMode(),
+    maxActionRounds: getConfiguredMaxActionRounds(),
     pageContext: null,
     projectContext: workflow === 'frontend-loop' ? getProjectContextSync() : null,
     actionResults: msg.actionResults || null
@@ -1021,13 +1078,104 @@ function executeInput(selector, value) {
   const typed = 'Input updated: ' + selector;
   return executeInspectedWindowEval(`
     (function() {
-      var el = document.querySelector(${JSON.stringify(selector)});
+      var selector = ${JSON.stringify(selector)};
+      var desiredValue = ${JSON.stringify(value)};
+      var el = document.querySelector(selector);
       if (!el) return ${JSON.stringify(notFound)};
-      el.focus();
-      el.value = ${JSON.stringify(value)};
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-      return ${JSON.stringify(typed)};
+
+      function clean(text) {
+        return String(text || '').replace(/\\s+/g, ' ').trim();
+      }
+
+      function nativeValueSetter(node) {
+        var tag = (node.tagName || '').toLowerCase();
+        var proto = tag === 'textarea'
+          ? HTMLTextAreaElement.prototype
+          : tag === 'select'
+            ? HTMLSelectElement.prototype
+            : HTMLInputElement.prototype;
+        var descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
+        return descriptor && descriptor.set ? descriptor.set : null;
+      }
+
+      function setNativeValue(node, nextValue) {
+        var setter = nativeValueSetter(node);
+        if (setter) setter.call(node, nextValue);
+        else node.value = nextValue;
+      }
+
+      function fire(node, type) {
+        var event;
+        if ((type === 'beforeinput' || type === 'input') && typeof InputEvent === 'function') {
+          event = new InputEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            data: desiredValue,
+            inputType: 'insertText'
+          });
+        } else {
+          event = new Event(type, { bubbles: true, cancelable: true, composed: true });
+        }
+        node.dispatchEvent(event);
+      }
+
+      function setSelectValue(node, nextValue) {
+        var options = Array.from(node.options || []);
+        var match = options.find(function(option) {
+          return option.value === nextValue || clean(option.textContent) === nextValue;
+        });
+        setNativeValue(node, match ? match.value : nextValue);
+      }
+
+      function setElementValue(node, nextValue) {
+        var tag = (node.tagName || '').toLowerCase();
+        var role = node.getAttribute ? node.getAttribute('role') : '';
+        var isTextboxLike = node.isContentEditable || (!('value' in node) && role === 'textbox');
+        if (isTextboxLike) {
+          if (node.textContent !== nextValue) node.textContent = nextValue;
+          return;
+        }
+        if (tag === 'select') {
+          setSelectValue(node, nextValue);
+          return;
+        }
+        if ('value' in node) {
+          setNativeValue(node, nextValue);
+          return;
+        }
+        if (node.textContent !== nextValue) node.textContent = nextValue;
+      }
+
+      function currentValue(node) {
+        var tag = (node.tagName || '').toLowerCase();
+        if (tag === 'select') {
+          var option = node.options && node.selectedIndex >= 0 ? node.options[node.selectedIndex] : null;
+          return option ? { value: node.value, text: clean(option.textContent) } : { value: node.value, text: '' };
+        }
+        if ('value' in node) return { value: node.value, text: '' };
+        return { value: clean(node.textContent), text: '' };
+      }
+
+      function valueMatches(node, nextValue) {
+        var current = currentValue(node);
+        return current.value === nextValue || current.text === nextValue;
+      }
+
+      var lastObserved = '';
+      for (var attempt = 1; attempt <= 3; attempt += 1) {
+        el.focus();
+        setElementValue(el, desiredValue);
+        fire(el, 'beforeinput');
+        fire(el, 'input');
+        fire(el, 'change');
+        lastObserved = currentValue(el).value || currentValue(el).text;
+        if (valueMatches(el, desiredValue)) {
+          return ${JSON.stringify(typed)} + ' (attempt ' + attempt + ', observed "' + clean(lastObserved).slice(0, 120) + '")';
+        }
+      }
+
+      return 'Input may not have stuck: ' + selector + ' (observed "' + clean(lastObserved).slice(0, 120) + '")';
     })()
   `);
 }
@@ -1153,6 +1301,148 @@ function executeInspectedWindowEval(code) {
       }
     });
   });
+}
+
+function shouldCollectActionEvidence(type) {
+  return EVIDENCE_ACTIONS.has(type);
+}
+
+function waitForActionEvidence() {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
+    try {
+      const timer = setTimeout(finish, ACTION_EVIDENCE_DELAY_MS);
+      if (timer === undefined) Promise.resolve().then(finish);
+    } catch {
+      finish();
+    }
+  });
+}
+
+function buildActionEvidenceScript() {
+  return `
+    (function() {
+      function clean(value, max) {
+        return String(value || '').replace(/\\s+/g, ' ').trim().slice(0, max || 240);
+      }
+
+      function isVisible(el) {
+        if (!el || el.nodeType !== 1) return false;
+        var rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+        if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+        var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+        return !style || (style.display !== 'none' && style.visibility !== 'hidden');
+      }
+
+      function describeElement(el) {
+        if (!el || el.nodeType !== 1) return '';
+        var tag = (el.tagName || '').toLowerCase();
+        var label = tag;
+        if (el.id) label += '#' + el.id;
+        if (el.getAttribute) {
+          var testId = el.getAttribute('data-testid') || el.getAttribute('data-test') || el.getAttribute('data-cy');
+          var name = el.getAttribute('name');
+          var role = el.getAttribute('role');
+          var aria = el.getAttribute('aria-label');
+          if (testId) label += '[data-testid="' + clean(testId, 80) + '"]';
+          if (name) label += '[name="' + clean(name, 80) + '"]';
+          if (role) label += '[role="' + clean(role, 80) + '"]';
+          if (aria) label += ' aria="' + clean(aria, 100) + '"';
+        }
+
+        var value = '';
+        if (tag === 'select') {
+          var selected = el.options && el.selectedIndex >= 0 ? el.options[el.selectedIndex] : null;
+          value = selected ? clean(selected.textContent || selected.value, 120) : clean(el.value, 120);
+        } else if ('value' in el) {
+          value = clean(el.value, 120);
+        } else if (el.isContentEditable || (el.getAttribute && el.getAttribute('role') === 'textbox')) {
+          value = clean(el.textContent, 120);
+        }
+
+        var text = value ? '' : clean(el.innerText || el.textContent, 120);
+        if (value) label += ' value="' + value + '"';
+        else if (text) label += ' text="' + text + '"';
+        return label;
+      }
+
+      var inputSelector = 'input, textarea, select, [contenteditable="true"], [role="textbox"]';
+      var buttonSelector = 'button, [role="button"], input[type="button"], input[type="submit"], input[type="reset"]';
+      var inputs = Array.from(document.querySelectorAll(inputSelector)).filter(isVisible).slice(0, 8).map(describeElement);
+      var buttons = Array.from(document.querySelectorAll(buttonSelector)).filter(isVisible).slice(0, 12).map(describeElement);
+
+      return {
+        url: location.href,
+        title: document.title,
+        textSample: clean(document.body ? (document.body.innerText || document.body.textContent) : '', 1200),
+        active: describeElement(document.activeElement),
+        inputs: inputs,
+        buttons: buttons
+      };
+    })()
+  `;
+}
+
+async function collectActionEvidence() {
+  if (typeof chrome === 'undefined' || !chrome.devtools || !chrome.devtools.inspectedWindow) {
+    return null;
+  }
+
+  try {
+    const result = await executeInspectedWindowEval(buildActionEvidenceScript());
+    if (result && typeof result === 'object') return result;
+    return result ? { error: String(result) } : null;
+  } catch (error) {
+    return { error: error && error.message ? error.message : String(error) };
+  }
+}
+
+function actionEvidenceTextChanged(before, after) {
+  if (!before || !after) return 'unknown';
+  const beforeText = String(before.textSample || '');
+  const afterText = String(after.textSample || '');
+  return beforeText === afterText ? 'no' : 'yes';
+}
+
+function formatActionEvidence(before, after) {
+  if (!after) return '';
+  if (after.error) return `Verification evidence:\nEvidence collection failed: ${after.error}`;
+
+  const lines = ['Verification evidence:'];
+  if (before && before.url) {
+    lines.push(before.url === after.url ? `URL: ${after.url} (unchanged)` : `URL: ${before.url} -> ${after.url}`);
+  } else if (after.url) {
+    lines.push(`URL: ${after.url}`);
+  }
+
+  if (before && before.title) {
+    lines.push(before.title === after.title ? `Title: ${after.title} (unchanged)` : `Title: ${before.title} -> ${after.title}`);
+  } else if (after.title) {
+    lines.push(`Title: ${after.title}`);
+  }
+
+  lines.push(`Text changed: ${actionEvidenceTextChanged(before, after)}`);
+  if (after.active) lines.push(`Active: ${after.active}`);
+  if (Array.isArray(after.inputs) && after.inputs.length > 0) {
+    lines.push(`Inputs: ${after.inputs.slice(0, 4).join(' | ')}`);
+  }
+  if (Array.isArray(after.buttons) && after.buttons.length > 0) {
+    lines.push(`Buttons: ${after.buttons.slice(0, 6).join(' | ')}`);
+  }
+  lines.push('Do not declare success or failure from dispatch alone; use URL, DOM, and text evidence, or say evidence is insufficient.');
+  return lines.join('\n');
+}
+
+function formatActionResultWithEvidence(result, beforeEvidence, afterEvidence) {
+  const resultText = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+  const evidenceText = formatActionEvidence(beforeEvidence, afterEvidence);
+  if (!evidenceText) return resultText;
+  return `Action result:\n${resultText}\n\n${evidenceText}`;
 }
 
 function executeFileAction(type, payload, timeoutMs = 30000) {
@@ -1478,7 +1768,7 @@ function confirmAction(type, code) {
 
 async function executeActions(actions) {
   if (actions.length === 0) return;
-  if (actionRoundCount >= MAX_ACTION_ROUNDS) {
+  if (actionRoundCount >= getConfiguredMaxActionRounds()) {
     const message = t('actionLimitReached');
     for (const a of actions) {
       const el = document.getElementById(a.placeholder);
@@ -1502,7 +1792,15 @@ async function executeActions(actions) {
     } else if (policy === 'confirm' && !confirmAction(a.type, a.code)) {
       result = t('actionDeclined');
     } else {
+      const wantsEvidence = shouldCollectActionEvidence(a.type);
+      const beforeEvidence = wantsEvidence ? await collectActionEvidence() : null;
       result = await executeAction(a.type, a.code);
+      let afterEvidence = null;
+      if (wantsEvidence) {
+        await waitForActionEvidence();
+        afterEvidence = await collectActionEvidence();
+      }
+      result = formatActionResultWithEvidence(result, beforeEvidence, afterEvidence);
     }
     const resultText = redactSensitiveText(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
     const short = truncateText(resultText, DEFAULT_ACTION_RESULT_MAX_CHARS);
@@ -1564,6 +1862,7 @@ function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+initActionRoundControl();
 applyLocale();
 
 sendBtn.addEventListener('click', () => send({ content: inputEl.value.trim() }));

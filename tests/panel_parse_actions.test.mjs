@@ -19,6 +19,7 @@ function loadPanelContext() {
     value: '',
   };
   const permissionModeEl = { ...emptyEl, value: 'auto' };
+  const maxActionRoundsEl = { ...emptyEl, value: '5' };
   const context = {
     clearTimeout() {},
     confirm: () => true,
@@ -26,7 +27,11 @@ function loadPanelContext() {
     document: {
       createElement: () => ({ ...emptyEl }),
       getElementById: () => emptyEl,
-      querySelector: (selector) => selector === '#permission-mode-select' ? permissionModeEl : emptyEl,
+      querySelector: (selector) => {
+        if (selector === '#permission-mode-select') return permissionModeEl;
+        if (selector === '#max-action-rounds') return maxActionRoundsEl;
+        return emptyEl;
+      },
     },
     navigator: { clipboard: { writeText() {} } },
     setTimeout() {},
@@ -34,6 +39,7 @@ function loadPanelContext() {
     WebSocket: { OPEN: 1 },
     __sentMessages: sentMessages,
     __permissionModeEl: permissionModeEl,
+    __maxActionRoundsEl: maxActionRoundsEl,
   };
   vm.createContext(context);
   vm.runInContext(definitionsOnly, context);
@@ -109,6 +115,57 @@ test('executeActions stops after five automatic action result rounds', async () 
   }
 
   assert.equal(context.__sentMessages.length, 5);
+});
+
+test('executeActions uses the configured automatic action round limit', async () => {
+  const context = loadPanelContext();
+  context.__maxActionRoundsEl.value = '7';
+  context.executeAction = async () => 'ok';
+
+  for (let i = 0; i < 8; i++) {
+    await context.executeActions([{ type: 'title', code: '', placeholder: 'missing' }]);
+  }
+
+  assert.equal(context.__sentMessages.length, 7);
+});
+
+test('executeActions attaches verification evidence to action results', async () => {
+  const context = loadPanelContext();
+  const snapshots = [
+    { url: 'http://localhost/before', title: 'Before', textSample: 'idle', active: 'body' },
+    {
+      url: 'http://localhost/app/cf2ccf0d2c768f09',
+      title: 'After',
+      textSample: 'Gemini replied: received',
+      active: 'textarea#prompt value="received"',
+      inputs: ['textarea#prompt value="received"'],
+      buttons: ['button Send'],
+    },
+  ];
+  context.collectActionEvidence = async () => snapshots.shift();
+  context.executeAction = async () => 'Clicked: button.send';
+
+  await context.executeActions([{ type: 'click', code: 'button.send', placeholder: 'missing' }]);
+
+  const result = Object.values(context.__sentMessages[0].actionResults)[0];
+  assert.match(result, /Action result:/);
+  assert.match(result, /Verification evidence:/);
+  assert.match(result, /URL: http:\/\/localhost\/before -> http:\/\/localhost\/app\/cf2ccf0d2c768f09/);
+  assert.match(result, /Text changed: yes/);
+  assert.match(result, /button Send/);
+});
+
+test('executeInput script uses native value setters and avoids innerHTML injection', () => {
+  const context = loadPanelContext();
+  context.executeInspectedWindowEval = (code) => code;
+
+  const script = context.executeInput('[contenteditable="true"]', '<b>hello</b>');
+
+  assert.match(script, /HTMLInputElement\.prototype/);
+  assert.match(script, /HTMLTextAreaElement\.prototype/);
+  assert.match(script, /InputEvent/);
+  assert.match(script, /textContent/);
+  assert.doesNotMatch(script, /\.innerHTML\s*=/);
 });
 
 test('plan mode blocks mutating and code-execution actions', async () => {

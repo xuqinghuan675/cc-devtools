@@ -20,6 +20,17 @@ Add Singapore to the country selector. Use a local JSON file, patch the frontend
 6. Verify on the page with `[ACTION:click]`, `[ACTION:input]`, `[ACTION:press]`, `[ACTION:text]`, or `[ACTION:dom]`.
 7. Finish with evidence: files changed, selector verified, visible page output, and rollback path.
 
+## Evidence Discipline
+
+Every browser operation can return a `Verification evidence` block with URL, title, page text, active input, and visible controls after the action. Use that evidence before declaring success or failure.
+
+- If the URL, DOM, or text changed in the expected direction, report the concrete evidence.
+- If the action dispatch succeeded but evidence does not prove the outcome, continue with targeted `[ACTION:url]`, `[ACTION:text]`, `[ACTION:dom]`, or `[ACTION:dom:all]` checks.
+- If evidence is still incomplete, say that the evidence is insufficient and ask the user to inspect the live page instead of saying the task failed.
+- Do not give up after two failed SPA interactions. Make a third attempt with a different path, such as re-reading dynamic buttons, refilling cleared input, using a broader button selector, or checking URL/text changes.
+
+SPA notes: avoid `innerHTML` injection on Trusted Types pages, expect send buttons to be rendered outside the input ancestor tree, and do not rely on raw keyboard dispatch alone for Angular or other framework state.
+
 ## Preferred Sequence
 
 1. Capture URL and title:
