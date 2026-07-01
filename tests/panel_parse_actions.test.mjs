@@ -70,14 +70,22 @@ test('parseActions supports interaction and project scan actions', () => {
     '[ACTION:click]button.save[/ACTION]',
     '[ACTION:input]input[name="country"]\nSingapore[/ACTION]',
     '[ACTION:press]Enter[/ACTION]',
-    '[ACTION:project:scan][/ACTION]'
+    '[ACTION:project:scan][/ACTION]',
+    '[ACTION:storage:list]localStorage[/ACTION]',
+    '[ACTION:storage:get]{"area":"localStorage","key":"theme"}[/ACTION]',
+    '[ACTION:storage:set]{"area":"sessionStorage","key":"debug","value":"1"}[/ACTION]',
+    '[ACTION:storage:remove]{"area":"cookie","key":"debug"}[/ACTION]'
   ].join('\n'));
 
   assert.deepEqual(Array.from(parsed.actions, (action) => action.type), [
     'click',
     'input',
     'press',
-    'project:scan'
+    'project:scan',
+    'storage:list',
+    'storage:get',
+    'storage:set',
+    'storage:remove'
   ]);
 });
 
@@ -151,6 +159,62 @@ test('bypass mode executes high-risk actions without panel confirmation', async 
 
   assert.equal(executed, true);
   assert.equal(Object.values(context.__sentMessages[0].actionResults)[0], 'ran');
+});
+
+test('copy action prepares manual copy without writing clipboard automatically', async () => {
+  const context = loadPanelContext();
+  let clipboardWrites = 0;
+  context.navigator.clipboard.writeText = () => {
+    clipboardWrites += 1;
+  };
+
+  await context.executeActions([{ type: 'copy', code: 'copy me', placeholder: 'missing' }]);
+
+  assert.equal(clipboardWrites, 0);
+  assert.equal(context.__sentMessages.length, 1);
+  assert.match(Object.values(context.__sentMessages[0].actionResults)[0], /Copy button/i);
+});
+
+test('plan mode allows storage reads and blocks storage writes', async () => {
+  const context = loadPanelContext();
+  const executed = [];
+  context.__permissionModeEl.value = 'plan';
+  context.executeAction = async (type) => {
+    executed.push(type);
+    return 'ran';
+  };
+
+  await context.executeActions([
+    { type: 'storage:list', code: 'localStorage', placeholder: 'missing' },
+    { type: 'storage:get', code: '{"area":"localStorage","key":"theme"}', placeholder: 'missing' },
+    { type: 'storage:set', code: '{"area":"localStorage","key":"theme","value":"dark"}', placeholder: 'missing' },
+    { type: 'storage:remove', code: '{"area":"cookie","key":"debug"}', placeholder: 'missing' },
+  ]);
+
+  assert.deepEqual(executed, ['storage:list', 'storage:get']);
+  const results = Object.values(context.__sentMessages[0].actionResults);
+  assert.match(results[2], /blocked/i);
+  assert.match(results[3], /blocked/i);
+});
+
+test('auto mode asks before storage mutations', async () => {
+  const context = loadPanelContext();
+  let confirmCalls = 0;
+  let executed = false;
+  context.confirm = () => {
+    confirmCalls += 1;
+    return false;
+  };
+  context.executeAction = async () => {
+    executed = true;
+    return 'ran';
+  };
+
+  await context.executeActions([{ type: 'storage:set', code: '{"area":"localStorage","key":"theme","value":"dark"}', placeholder: 'missing' }]);
+
+  assert.equal(confirmCalls, 1);
+  assert.equal(executed, false);
+  assert.match(Object.values(context.__sentMessages[0].actionResults)[0], /declined/i);
 });
 
 test('redactSensitiveText hides token-like values but keeps useful context', () => {

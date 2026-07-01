@@ -45,6 +45,7 @@ function loadLocalizedPanelContext(language = 'zh-CN') {
     '#reset-btn',
     '#help-btn',
     '#help-panel',
+    '#pick-btn',
     '#page-context-btn',
     '#workflow-control span',
     '#permission-mode-control span',
@@ -82,6 +83,10 @@ test('panel exposes the Frontend Loop workflow mode', () => {
   assert.match(packagedHtml, /<option value="frontend-loop">Frontend Loop<\/option>/);
   assert.match(html, /<select id="permission-mode-select"/);
   assert.match(packagedHtml, /<select id="permission-mode-select"/);
+  assert.match(html, /<button id="pick-btn"/);
+  assert.match(packagedHtml, /<button id="pick-btn"/);
+  assert.match(html, /\[ACTION:storage:list\]localStorage\[\/ACTION\]/);
+  assert.match(html, /\[ACTION:network\]\{"id":1,"detail":true\}\[\/ACTION\]/);
   assert.match(html, /<option value="auto" selected>Auto<\/option>/);
   assert.match(html, /<option value="plan">Plan<\/option>/);
   assert.match(html, /<option value="bypassPermissions">Bypass<\/option>/);

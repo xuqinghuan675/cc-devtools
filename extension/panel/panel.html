@@ -35,6 +35,7 @@
       </select>
     </label>
     <div id="header-actions">
+      <button id="pick-btn" title="Pick an element from the inspected page">Pick</button>
       <button id="page-context-btn" title="Collect current page context">Collect</button>
       <button id="help-btn" title="Show action reference">?</button>
       <button id="reset-btn" title="Reset conversation">Reset</button>
@@ -46,15 +47,20 @@
       <div class="help-item"><code>[ACTION:eval]code[/ACTION]</code><span>Run JavaScript in the inspected page</span></div>
       <div class="help-item"><code>[ACTION:dom]selector[/ACTION]</code><span>Read element outerHTML</span></div>
       <div class="help-item"><code>[ACTION:dom:all]selector[/ACTION]</code><span>Read all matching elements</span></div>
+      <div class="help-item"><code>[ACTION:dom:all]{"selector":"button","offset":0,"limit":25,"format":"summary"}[/ACTION]</code><span>Read paginated DOM matches</span></div>
       <div class="help-item"><code>[ACTION:text]selector[/ACTION]</code><span>Read visible element text</span></div>
       <div class="help-item"><code>[ACTION:console][/ACTION]</code><span>Read recent console logs</span></div>
       <div class="help-item"><code>[ACTION:network][/ACTION]</code><span>Summarize recent requests</span></div>
+      <div class="help-item"><code>[ACTION:network]{"id":1,"detail":true}[/ACTION]</code><span>Read request headers, timings, and response preview</span></div>
       <div class="help-item"><code>[ACTION:title][/ACTION]</code><span>Read page title</span></div>
       <div class="help-item"><code>[ACTION:url][/ACTION]</code><span>Read current URL</span></div>
-      <div class="help-item"><code>[ACTION:copy]text[/ACTION]</code><span>Copy text to clipboard</span></div>
+      <div class="help-item"><code>[ACTION:copy]text[/ACTION]</code><span>Render a user-click Copy button</span></div>
       <div class="help-item"><code>[ACTION:click]selector[/ACTION]</code><span>Click a page element</span></div>
       <div class="help-item"><code>[ACTION:input]selector\ntext[/ACTION]</code><span>Fill a control and fire events</span></div>
       <div class="help-item"><code>[ACTION:press]Enter[/ACTION]</code><span>Dispatch keyboard events</span></div>
+      <div class="help-item"><code>[ACTION:storage:list]localStorage[/ACTION]</code><span>List localStorage, sessionStorage, or cookie keys</span></div>
+      <div class="help-item"><code>[ACTION:storage:get]{"area":"localStorage","key":"theme"}[/ACTION]</code><span>Read browser storage values</span></div>
+      <div class="help-item"><code>[ACTION:storage:set]{"area":"sessionStorage","key":"debug","value":"1"}[/ACTION]</code><span>Write browser storage values</span></div>
       <div class="help-item"><code>[ACTION:project:scan][/ACTION]</code><span>Scan the local frontend project</span></div>
       <div class="help-item"><code>[ACTION:file:list]*.tsx[/ACTION]</code><span>List local project files</span></div>
       <div class="help-item"><code>[ACTION:file:read]path[/ACTION]</code><span>Read a local project file</span></div>

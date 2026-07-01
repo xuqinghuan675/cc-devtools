@@ -179,3 +179,108 @@ test('getNetworkHAR redacts token-like URL values', async () => {
   assert.match(result, /country=SG/);
   assert.ok(!result.includes('abc123'));
 });
+
+test('parseDomAllOptions accepts selector strings and JSON pagination payloads', () => {
+  const context = loadPanelContext();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(context.parseDomAllOptions('button'))), {
+    selector: 'button',
+    offset: 0,
+    limit: 25,
+    format: 'html',
+    maxChars: 12000,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(context.parseDomAllOptions('{"selector":"button","offset":25,"limit":10,"format":"summary","maxChars":4000}'))), {
+    selector: 'button',
+    offset: 25,
+    limit: 10,
+    format: 'summary',
+    maxChars: 4000,
+  });
+});
+
+test('formatDomAllResult reports pagination and next action hint', () => {
+  const context = loadPanelContext();
+
+  const result = context.formatDomAllResult({
+    selector: 'button',
+    offset: 0,
+    limit: 2,
+    format: 'summary',
+    maxChars: 12000,
+    total: 3,
+    items: ['#1 button Save', '#2 button Cancel'],
+  });
+
+  assert.match(result, /Total: 3/);
+  assert.match(result, /Showing: 1-2/);
+  assert.match(result, /hasMore: true/);
+  assert.match(result, /\[ACTION:dom:all\]\{"selector":"button","offset":2,"limit":2,"format":"summary","maxChars":12000\}\[\/ACTION\]/);
+});
+
+test('network summary uses stable ids and redacts sensitive URLs', async () => {
+  const context = loadPanelContext();
+  const entry = {
+    startedDateTime: '2026-07-01T00:00:00.000Z',
+    _resourceType: 'fetch',
+    request: { method: 'GET', url: 'https://api.test/users?token=abc123&country=SG', headers: [] },
+    response: { status: 200, statusText: 'OK', headers: [], content: { size: 42, mimeType: 'application/json' } },
+    time: 128,
+  };
+
+  context.rememberNetworkRequest(entry);
+  const result = await context.getNetworkHAR('{"filter":"fetch","limit":10}');
+
+  assert.match(result, /#1 GET https:\/\/api\.test\/users\?token=\[redacted\]&country=SG/);
+  assert.match(result, /200/);
+  assert.match(result, /128ms/);
+  assert.match(result, /hasMore: false/);
+  assert.ok(!result.includes('abc123'));
+});
+
+test('network detail includes headers, post data, timings and response preview', async () => {
+  const context = loadPanelContext();
+  const entry = {
+    startedDateTime: '2026-07-01T00:00:00.000Z',
+    _resourceType: 'xhr',
+    _initiator: { type: 'script', stack: { callFrames: [{ functionName: 'loadUsers', url: 'app.js', lineNumber: 9 }] } },
+    request: {
+      method: 'POST',
+      url: 'https://api.test/users',
+      headers: [{ name: 'Authorization', value: 'Bearer secret-value' }],
+      postData: { text: '{"token":"abc123","country":"SG"}' },
+    },
+    response: {
+      status: 201,
+      statusText: 'Created',
+      headers: [{ name: 'content-type', value: 'application/json' }],
+      content: { size: 24, mimeType: 'application/json' },
+    },
+    timings: { wait: 10, receive: 4 },
+    time: 44,
+    getContent(callback) {
+      callback('{"ok":true,"token":"abc123"}', 'utf-8');
+    },
+  };
+
+  context.rememberNetworkRequest(entry);
+  const result = await context.getNetworkHAR('{"id":1,"detail":true,"bodyLimit":2000}');
+
+  assert.match(result, /Request #1/);
+  assert.match(result, /POST https:\/\/api\.test\/users/);
+  assert.match(result, /Authorization: Bearer \[redacted\]/);
+  assert.match(result, /Post Data/);
+  assert.match(result, /"country":"SG"/);
+  assert.match(result, /Response Preview/);
+  assert.match(result, /"ok":true/);
+  assert.match(result, /Initiator/);
+  assert.ok(!result.includes('secret-value'));
+  assert.ok(!result.includes('abc123'));
+});
+
+test('packaged and load-unpacked panel scripts stay synchronized', () => {
+  const packaged = readFileSync('cc_devtools/extension/panel/panel.js', 'utf8');
+  const unpacked = readFileSync('extension/panel/panel.js', 'utf8');
+
+  assert.equal(packaged, unpacked);
+});

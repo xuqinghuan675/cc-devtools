@@ -124,7 +124,7 @@ The workflow prompts live in [`cc_devtools/skills/frontend-devtools-workflows`](
 
 The permission-mode dropdown does not enable local file writes. `[ACTION:save]` / `write_file` still require `CC_DEVTOOLS_ENABLE_WRITE=1` in both the Python bridge and the Node bridge.
 
-Action execution stays lightweight by default: read-only actions run automatically, `click` / `input` / `press` continue to work in Auto mode, and only higher-risk `eval`, `save`, and `file:read` ask for panel confirmation. Plan mode blocks mutating actions; Bypass mode skips panel confirmation but does not bypass bridge write-root, sensitive-file, or `CC_DEVTOOLS_ENABLE_WRITE` checks.
+Action execution stays lightweight by default: read-only actions run automatically, `click` / `input` / `press` continue to work in Auto mode, and only higher-risk `eval`, `save`, `file:read`, `storage:set`, and `storage:remove` ask for panel confirmation. Plan mode blocks mutating actions; Bypass mode skips panel confirmation but does not bypass bridge write-root, sensitive-file, or `CC_DEVTOOLS_ENABLE_WRITE` checks.
 
 ## Actions
 
@@ -132,15 +132,22 @@ Action execution stays lightweight by default: read-only actions run automatical
 |---|---|
 | `[ACTION:eval]code[/ACTION]` | Execute JavaScript on the inspected page |
 | `[ACTION:dom]selector[/ACTION]` | Return the first matched element's `outerHTML` |
-| `[ACTION:dom:all]selector[/ACTION]` | Return all matched elements |
+| `[ACTION:dom:all]selector[/ACTION]` | Return paginated matching elements |
+| `[ACTION:dom:all]{"selector":"button","offset":0,"limit":25,"format":"summary"}[/ACTION]` | Return paginated DOM summaries |
 | `[ACTION:text]selector[/ACTION]` | Return visible text for an element |
 | `[ACTION:click]selector[/ACTION]` | Click a matched element on the inspected page |
 | `[ACTION:input]selector\ntext[/ACTION]` | Set an input-like element value and dispatch input/change events |
 | `[ACTION:press]key[/ACTION]` | Send keydown/keyup events to the active element |
 | `[ACTION:console][/ACTION]` | Return recent console logs |
-| `[ACTION:network][/ACTION]` | Return recent network requests |
+| `[ACTION:network][/ACTION]` | Return recent network requests with stable in-session IDs |
+| `[ACTION:network]{"id":1,"detail":true,"bodyLimit":12000}[/ACTION]` | Return request headers, timing, post data, and response preview |
 | `[ACTION:title][/ACTION]` | Return page title |
 | `[ACTION:url][/ACTION]` | Return current URL |
+| `[ACTION:copy]text[/ACTION]` | Render a user-click Copy button with fallback selectable text |
+| `[ACTION:storage:list]localStorage[/ACTION]` | List `localStorage`, `sessionStorage`, or visible cookie keys |
+| `[ACTION:storage:get]{"area":"localStorage","key":"theme"}[/ACTION]` | Read browser storage values |
+| `[ACTION:storage:set]{"area":"sessionStorage","key":"debug","value":"1"}[/ACTION]` | Write browser storage values after confirmation |
+| `[ACTION:storage:remove]{"area":"cookie","key":"debug"}[/ACTION]` | Remove browser storage values after confirmation |
 | `[ACTION:project:scan][/ACTION]` | Summarize local frontend framework, bundler, scripts, configs, key directories, data/service candidates, dependencies, and entry files |
 | `[ACTION:file:list]pattern[/ACTION]` | List local project files under the bridge write root |
 | `[ACTION:file:read]path[/ACTION]` | Read a local project file under the bridge write root |

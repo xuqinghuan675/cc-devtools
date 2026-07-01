@@ -13,8 +13,10 @@ runs the requested page or file action, and sends the result back into the chat.
     Example: [ACTION:dom]#main[/ACTION]
 
 [ACTION:dom:all]CSS selector[/ACTION]
-    Return all matched elements' outerHTML.
+    Return paginated matched elements' outerHTML.
     Example: [ACTION:dom:all].item[/ACTION]
+    Paginated summary example:
+    [ACTION:dom:all]{"selector":"button","offset":0,"limit":25,"format":"summary","maxChars":12000}[/ACTION]
 
 [ACTION:text]CSS selector[/ACTION]
     Return visible text for the matched element.
@@ -41,7 +43,11 @@ text to type
     Return recent console logs.
 
 [ACTION:network][/ACTION]
-    Return recent network requests.
+    Return recent network requests with stable in-session IDs.
+    Summary example:
+    [ACTION:network]{"offset":0,"limit":20,"filter":"fetch"}[/ACTION]
+    Detail example:
+    [ACTION:network]{"id":1,"detail":true,"bodyLimit":12000}[/ACTION]
 
 [ACTION:title][/ACTION]
     Return the page title.
@@ -50,8 +56,24 @@ text to type
     Return the current page URL.
 
 [ACTION:copy]content[/ACTION]
-    Copy content to the system clipboard.
+    Render a user-click Copy button with selectable fallback text.
     Example: [ACTION:copy]console.log('hello')[/ACTION]
+
+[ACTION:storage:list]area[/ACTION]
+    List browser storage keys for localStorage, sessionStorage, or visible cookies.
+    Example: [ACTION:storage:list]localStorage[/ACTION]
+
+[ACTION:storage:get]JSON[/ACTION]
+    Read a browser storage value.
+    Example: [ACTION:storage:get]{"area":"localStorage","key":"theme"}[/ACTION]
+
+[ACTION:storage:set]JSON[/ACTION]
+    Write a browser storage value after confirmation.
+    Example: [ACTION:storage:set]{"area":"sessionStorage","key":"debug","value":"1"}[/ACTION]
+
+[ACTION:storage:remove]JSON[/ACTION]
+    Remove a browser storage value after confirmation.
+    Example: [ACTION:storage:remove]{"area":"cookie","key":"debug"}[/ACTION]
 
 [ACTION:project:scan][/ACTION]
     Scan the local frontend project under the bridge write root. The report
