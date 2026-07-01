@@ -39,6 +39,13 @@
       <span>Rounds</span>
       <input id="max-action-rounds" type="number" min="1" max="25" step="1" value="5" title="Maximum automatic action-result rounds per user message">
     </label>
+    <label id="token-control">
+      <span>Token</span>
+      <div class="token-input-row">
+        <input id="bridge-token" type="password" autocomplete="off" placeholder="Paste token" title="Bridge token from start-bridge.bat">
+        <button id="save-token-btn" type="button" title="Save bridge token">Save</button>
+      </div>
+    </label>
     <div id="header-actions">
       <button id="pick-btn" title="Pick an element from the inspected page">Pick</button>
       <button id="page-context-btn" title="Collect current page context">Collect</button>

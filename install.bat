@@ -28,7 +28,7 @@ echo   Step 1: this script installs and starts the bridge.
 echo   Step 2: Chrome will open. Load the extension folder.
 echo.
 
-echo   [1/5] Detect Python
+echo   [1/6] Detect Python
 set "PYTHON=python"
 where python >nul 2>&1
 if errorlevel 1 (
@@ -46,7 +46,7 @@ if errorlevel 1 (
 for /f "tokens=*" %%v in ('%PYTHON% --version 2^>^&1') do echo   Python: %%v
 echo.
 
-echo   [2/5] Install cc-devtools Python bridge
+echo   [2/6] Install cc-devtools Python bridge
 echo   Running: python -m pip install -e "%ROOT%"
 call %PYTHON% -m pip install -e "%ROOT%"
 if errorlevel 1 (
@@ -60,7 +60,23 @@ if errorlevel 1 (
 echo   Python bridge OK
 echo.
 
-echo   [3/5] Detect CLI AI command
+echo   [3/6] Configure bridge token
+if defined CC_DEVTOOLS_TOKEN (
+    set "BRIDGE_TOKEN=%CC_DEVTOOLS_TOKEN%"
+) else (
+    for /f "usebackq delims=" %%T in (`%PYTHON% -c "import secrets; print(secrets.token_urlsafe(32))"`) do set "BRIDGE_TOKEN=%%T"
+)
+if not defined BRIDGE_TOKEN (
+    echo   [ERR] Could not generate CC_DEVTOOLS_TOKEN.
+    echo   Re-run this install.bat after Python can import the standard secrets module.
+    echo.
+    pause
+    exit /b 1
+)
+echo   Bridge token ready
+echo.
+
+echo   [4/6] Detect CLI AI command
 if defined CC_DEVTOOLS_CMD (
     set "AI_CMD=%CC_DEVTOOLS_CMD%"
 ) else (
@@ -82,7 +98,7 @@ echo   CLI AI: %AI_CMD%
 call %AI_CMD% --version
 echo.
 
-echo   [4/5] Prepare bridge port localhost:%PORT%
+echo   [5/6] Prepare bridge port localhost:%PORT%
 for /f "tokens=5" %%P in ('netstat -ano ^| findstr /C:":%PORT%" ^| findstr "LISTENING"') do (
     if not "%%P"=="0" (
         echo   Stopping existing process on port %PORT%: %%P
@@ -92,7 +108,7 @@ for /f "tokens=5" %%P in ('netstat -ano ^| findstr /C:":%PORT%" ^| findstr "LIST
 echo   Port %PORT% ready
 echo.
 
-echo   [5/5] Create and start start-bridge.bat
+echo   [6/6] Create and start start-bridge.bat
 (
 echo @echo off
 echo setlocal EnableExtensions
@@ -101,6 +117,7 @@ echo set "CC_DEVTOOLS_PORT=%PORT%"
 echo set "CC_DEVTOOLS_WRITE_ROOT=%WRITE_ROOT%"
 echo set "CC_DEVTOOLS_CMD=%AI_CMD%"
 echo set "CC_DEVTOOLS_LOG=%LOG_PATH%"
+echo set "CC_DEVTOOLS_TOKEN=%BRIDGE_TOKEN%"
 echo cd /d "%ROOT%"
 echo echo.
 echo echo   CC DevTools Bridge Server
@@ -108,15 +125,12 @@ echo echo   ws://localhost:%PORT%
 echo echo   Write root: %%CC_DEVTOOLS_WRITE_ROOT%%
 echo echo   CLI AI: %%CC_DEVTOOLS_CMD%%
 echo echo   Log file: %%CC_DEVTOOLS_LOG%%
+echo echo   WebSocket token: enabled
+echo echo   Panel token: %%CC_DEVTOOLS_TOKEN%%
 echo if defined CC_DEVTOOLS_ENABLE_WRITE ^(
 echo     echo   File writes: enabled by CC_DEVTOOLS_ENABLE_WRITE=%%CC_DEVTOOLS_ENABLE_WRITE%%
 echo ^) else ^(
 echo     echo   File writes: disabled by default
-echo ^)
-echo if defined CC_DEVTOOLS_TOKEN ^(
-echo     echo   WebSocket token: enabled
-echo ^) else ^(
-echo     echo   WebSocket token: not configured
 echo ^)
 echo echo.
 echo echo   Keep this window open while using the F12 panel.
@@ -159,7 +173,9 @@ echo     1. Enable Developer mode
 echo     2. Click Load unpacked
 echo     3. Select this folder:
 echo        %EXT_DIR%
-echo     4. Open any web page, press F12, choose Claude Code
+echo     4. Open any web page, press F12, choose cc-devtools
+echo     5. Paste this token into the panel Token field and click Save:
+echo        %BRIDGE_TOKEN%
 echo.
 echo   After this, double-click start-bridge.bat only if you restart Windows
 echo   or close the bridge window.

@@ -1,13 +1,14 @@
 import { WebSocketServer } from 'ws';
 import { spawn } from 'child_process';
 import { createServer } from 'http';
-import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
-import { dirname, extname, join } from 'path';
+import { writeFileSync, mkdirSync, existsSync } from 'fs';
+import { dirname } from 'path';
 
 import { listFiles, readFileInsideRoot } from './file-actions.js';
 import { buildPermissionArgs, fileWriteEnabled, normalizePermissionMode } from './permissions.js';
 import { scanFrontendProject } from './project-scan.js';
 import { getWriteRoot, resolveWritePath } from './safety.js';
+import { readStaticFileRequest, requestTokenAuthorized } from './static-files.js';
 import { getWorkflowPrompt } from './workflows.js';
 
 const PORT = Number(process.env.CC_DEVTOOLS_PORT || 9876);
@@ -214,14 +215,9 @@ const server = createServer((req, res) => {
     return;
   }
   if (req.url.startsWith('/files/')) {
-    const filePath = join(WRITE_ROOT, req.url.slice(7));
-    if (!filePath.startsWith(WRITE_ROOT)) { res.writeHead(403); res.end(); return; }
-    try {
-      const content = readFileSync(filePath);
-      const mime = { '.ico':'image/x-icon','.png':'image/png','.jpg':'image/jpeg','.svg':'image/svg+xml','.json':'application/json','.js':'text/javascript','.css':'text/css','.html':'text/html' }[extname(filePath).toLowerCase()] || 'application/octet-stream';
-      res.writeHead(200, { 'Content-Type': mime, 'Access-Control-Allow-Origin': '*' });
-      res.end(content);
-    } catch { res.writeHead(404); res.end(); }
+    const result = readStaticFileRequest(req, WRITE_ROOT);
+    res.writeHead(result.status, result.headers);
+    res.end(result.body);
     return;
   }
   res.writeHead(404);
@@ -230,7 +226,14 @@ const server = createServer((req, res) => {
 
 const wss = new WebSocketServer({ server });
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  if (!requestTokenAuthorized(req)) {
+    const message = 'invalid or missing CC_DEVTOOLS_TOKEN';
+    ws.send(JSON.stringify({ type: 'error', message }));
+    ws.close(1008, message);
+    return;
+  }
+
   let conversation = [];
 
   ws.on('message', async (data) => {
@@ -322,6 +325,7 @@ server.listen(PORT, () => {
   console.log(`文件写入目录: ${WRITE_ROOT}`);
   console.log(`CLI permission mode: ${normalizePermissionMode()}`);
   console.log(`File writes: ${fileWriteEnabled() ? 'enabled' : 'disabled; set CC_DEVTOOLS_ENABLE_WRITE=1 to enable'}`);
+  console.log(`WebSocket token: ${process.env.CC_DEVTOOLS_TOKEN ? 'enabled' : 'not configured'}`);
   console.log('按 Ctrl+C 停止');
 });
 

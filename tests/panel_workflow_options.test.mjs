@@ -92,6 +92,10 @@ test('panel exposes the Frontend Loop workflow mode', () => {
   assert.match(packagedHtml, /<input id="max-action-rounds"/);
   assert.match(html, /id="token-usage"/);
   assert.match(packagedHtml, /id="token-usage"/);
+  assert.match(html, /id="bridge-token"/);
+  assert.match(packagedHtml, /id="bridge-token"/);
+  assert.match(html, /id="save-token-btn"/);
+  assert.match(packagedHtml, /id="save-token-btn"/);
   assert.match(html, /<button id="pick-btn"/);
   assert.match(packagedHtml, /<button id="pick-btn"/);
   assert.match(html, /\[ACTION:storage:list\]localStorage\[\/ACTION\]/);

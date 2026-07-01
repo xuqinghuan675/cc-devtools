@@ -36,6 +36,12 @@ class WindowsInstallerTests(unittest.TestCase):
         self.assertIn("cc_devtools_write_root", self.installer)
         self.assertIn("cc_devtools_log", self.installer)
 
+    def test_installer_generates_and_writes_default_bridge_token(self):
+        self.assertIn("secrets.token_urlsafe", self.installer)
+        self.assertIn("bridge_token", self.installer)
+        self.assertIn("cc_devtools_token=%bridge_token%", self.installer)
+        self.assertIn("paste this token", self.installer)
+
     def test_start_bridge_is_self_contained(self):
         self.assertIn("-m cc_devtools.server", self.start_bridge)
         self.assertIn("cc_devtools_cmd", self.start_bridge)

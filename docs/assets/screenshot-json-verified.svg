@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-label="Local JSON patch">
+  <style>
+    .bg { fill: #151617; }
+    .chrome { fill: #202225; stroke: #363b42; stroke-width: 2; }
+    .panel { fill: #101112; stroke: #30343a; stroke-width: 2; }
+    .tab { fill: #73d99f; opacity: 0.18; }
+    .accent { fill: #73d99f; }
+    .muted { fill: #9aa4ae; font: 22px "Segoe UI", Arial, sans-serif; }
+    .title { fill: #e8ecef; font: 700 38px "Segoe UI", Arial, sans-serif; }
+    .small { fill: #c9d3dc; font: 18px "Segoe UI", Arial, sans-serif; }
+    .row { fill: #e8ecef; font: 24px "Cascadia Code", Consolas, monospace; }
+    .footer { fill: #73d99f; font: 700 24px "Segoe UI", Arial, sans-serif; }
+  </style>
+  <rect class="bg" width="960" height="540" rx="0"/>
+  <rect class="chrome" x="28" y="28" width="904" height="484" rx="10"/>
+  <rect class="tab" x="48" y="50" width="188" height="38" rx="6"/>
+  <circle class="accent" cx="68" cy="69" r="6"/>
+  <text x="88" y="76" class="small">cc-devtools</text>
+  <text x="54" y="126" class="muted">Frontend Loop result</text>
+  <text x="54" y="92" class="title">Local JSON patch</text>
+  <rect class="panel" x="42" y="140" width="876" height="270" rx="8"/>
+<text x="54" y="168" class="row">Read public/cc-devtools/countries.json</text>
+<text x="54" y="202" class="row">Saved { code: "SG", name: "Singapore" }</text>
+<text x="54" y="236" class="row">Selected Singapore in the live page</text>
+<text x="54" y="270" class="row">#verification-output: Verified: Singapore</text>
+  <rect x="42" y="430" width="876" height="54" rx="8" fill="#13241b" stroke="#2f6544" stroke-width="2"/>
+  <text x="64" y="465" class="footer">Verified: Singapore</text>
+</svg>

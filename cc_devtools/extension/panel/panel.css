@@ -41,7 +41,7 @@ button, select, textarea { font: inherit; }
 
 #header {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto minmax(160px, auto) auto;
   align-items: center;
   gap: 10px;
   min-height: 54px;
@@ -143,7 +143,8 @@ button, select, textarea { font: inherit; }
 
 #workflow-control,
 #permission-mode-control,
-#action-rounds-control {
+#action-rounds-control,
+#token-control {
   display: grid;
   gap: 3px;
   min-width: 154px;
@@ -157,9 +158,14 @@ button, select, textarea { font: inherit; }
   min-width: 76px;
 }
 
+#token-control {
+  min-width: 168px;
+}
+
 #workflow-control span,
 #permission-mode-control span,
-#action-rounds-control span {
+#action-rounds-control span,
+#token-control span {
   color: var(--soft);
   font-size: 9px;
   font-weight: 700;
@@ -169,7 +175,8 @@ button, select, textarea { font: inherit; }
 
 #workflow-select,
 #permission-mode-select,
-#max-action-rounds {
+#max-action-rounds,
+#bridge-token {
   min-height: 30px;
   padding: 0 28px 0 9px;
   border: 1px solid var(--line-strong);
@@ -185,9 +192,22 @@ button, select, textarea { font: inherit; }
   padding-right: 6px;
 }
 
+#bridge-token {
+  width: 100%;
+  min-width: 0;
+  padding-right: 9px;
+}
+
 #workflow-select:focus,
 #permission-mode-select:focus,
-#max-action-rounds:focus { border-color: var(--accent); }
+#max-action-rounds:focus,
+#bridge-token:focus { border-color: var(--accent); }
+
+.token-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
 
 #header-actions {
   display: grid;
@@ -196,6 +216,7 @@ button, select, textarea { font: inherit; }
 }
 
 #header-actions button,
+#save-token-btn,
 #send-btn {
   min-height: 30px;
   border: 1px solid var(--line-strong);
@@ -208,6 +229,11 @@ button, select, textarea { font: inherit; }
 
 #header-actions button {
   padding: 0 10px;
+  font-size: 11px;
+}
+
+#save-token-btn {
+  padding: 0 9px;
   font-size: 11px;
 }
 
@@ -230,6 +256,7 @@ button, select, textarea { font: inherit; }
 }
 
 #header-actions button:hover,
+#save-token-btn:hover,
 #send-btn:hover {
   border-color: var(--accent);
   background: var(--surface-3);
@@ -486,7 +513,7 @@ button, select, textarea { font: inherit; }
     align-items: start;
   }
 
-  #brand, #page-info, #workflow-control { grid-column: 1 / -1; }
+  #brand, #page-info, #workflow-control, #token-control { grid-column: 1 / -1; }
   #permission-mode-control, #action-rounds-control { grid-column: auto; }
   #header-actions { grid-column: 1 / -1; grid-auto-flow: column; justify-content: start; }
   .help-grid { grid-template-columns: 1fr; }

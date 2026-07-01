@@ -5,6 +5,7 @@ const MIN_ACTION_ROUNDS = 1;
 const MAX_ACTION_ROUNDS_LIMIT = 25;
 const ACTION_EVIDENCE_DELAY_MS = 350;
 const TOKEN_STORAGE_KEYS = ['CC_DEVTOOLS_TOKEN', 'cc_devtools_token'];
+const TOKEN_STORAGE_KEY = TOKEN_STORAGE_KEYS[0];
 const ACTION_ROUNDS_STORAGE_KEY = 'CC_DEVTOOLS_MAX_ACTION_ROUNDS';
 const PLAN_ALLOWED_ACTIONS = new Set(['dom', 'dom:all', 'text', 'console', 'network', 'title', 'url', 'copy', 'file:list', 'project:scan', 'storage:list', 'storage:get']);
 const AUTO_CONFIRM_ACTIONS = new Set(['eval', 'save', 'file:read', 'storage:set', 'storage:remove']);
@@ -41,6 +42,8 @@ const pageContextBtn = $('#page-context-btn');
 const workflowSelectEl = $('#workflow-select');
 const permissionModeSelectEl = $('#permission-mode-select');
 const maxActionRoundsEl = $('#max-action-rounds');
+const bridgeTokenEl = $('#bridge-token');
+const saveTokenBtn = $('#save-token-btn');
 
 const UI_TEXT = {
   en: {
@@ -85,6 +88,13 @@ const UI_TEXT = {
     statusConnecting: 'Connecting...',
     statusDisconnected: 'Disconnected',
     statusReconnecting: 'Disconnected, reconnecting...',
+    saveToken: 'Save',
+    saveTokenTitle: 'Save bridge token',
+    token: 'Token',
+    tokenCleared: 'Bridge token cleared',
+    tokenPlaceholder: 'Paste token',
+    tokenSaved: 'Bridge token saved',
+    tokenTitle: 'Paste the token printed by start-bridge.bat',
     tokenUsageTitle: 'Estimated current conversation token usage',
     workflow: 'Workflow',
     workflowTitle: 'Choose a DevTools workflow',
@@ -104,6 +114,13 @@ const UI_TEXT = {
   },
   zh: {
     tokenUsageTitle: '\u5f53\u524d\u5bf9\u8bdd\u4f30\u7b97 token \u6d88\u8017',
+    saveToken: 'Save',
+    saveTokenTitle: 'Save bridge token',
+    token: 'Token',
+    tokenCleared: 'Bridge token cleared',
+    tokenPlaceholder: 'Paste token',
+    tokenSaved: 'Bridge token saved',
+    tokenTitle: 'Paste the token printed by start-bridge.bat',
     action: '动作',
     actionBlockedPlan: '计划模式已阻止该动作。切换到自动或 Bypass 后可执行。',
     actionConfirm: '执行这个高风险动作？',
@@ -206,6 +223,16 @@ function applyLocale() {
   const actionRoundsLabelEl = document.querySelector('#action-rounds-control span');
   if (actionRoundsLabelEl) actionRoundsLabelEl.textContent = t('rounds');
   if (maxActionRoundsEl) maxActionRoundsEl.title = t('roundsTitle');
+  const tokenLabelEl = document.querySelector('#token-control span');
+  if (tokenLabelEl) tokenLabelEl.textContent = t('token');
+  if (bridgeTokenEl) {
+    bridgeTokenEl.placeholder = t('tokenPlaceholder');
+    bridgeTokenEl.title = t('tokenTitle');
+  }
+  if (saveTokenBtn) {
+    saveTokenBtn.textContent = t('saveToken');
+    saveTokenBtn.title = t('saveTokenTitle');
+  }
   if (pageContextBtn) {
     pageContextBtn.textContent = t('collect');
     pageContextBtn.title = t('collectTitle');
@@ -286,7 +313,7 @@ function getPanelStorage() {
   return storage || null;
 }
 
-function getBridgeToken() {
+function getStoredBridgeToken() {
   const storage = getPanelStorage();
   if (!storage) return '';
 
@@ -300,6 +327,53 @@ function getBridgeToken() {
   }
 
   return '';
+}
+
+function getBridgeToken() {
+  if (bridgeTokenEl && bridgeTokenEl.value.trim()) {
+    return bridgeTokenEl.value.trim();
+  }
+  return getStoredBridgeToken();
+}
+
+function persistBridgeToken() {
+  if (!bridgeTokenEl) return;
+  const token = bridgeTokenEl.value.trim();
+  const storage = getPanelStorage();
+  if (storage) {
+    try {
+      for (const key of TOKEN_STORAGE_KEYS) {
+        storage.removeItem(key);
+      }
+      if (token) {
+        storage.setItem(TOKEN_STORAGE_KEY, token);
+      }
+    } catch {
+      // Keep the in-memory input value even when storage is unavailable.
+    }
+  }
+  addSystemMessage(token ? t('tokenSaved') : t('tokenCleared'));
+  if (ws && typeof WebSocket === 'function') {
+    clearReconnect();
+    ws.onclose = null;
+    try { ws.close(); } catch {}
+    ws = null;
+    connect();
+  }
+}
+
+function initBridgeTokenControl() {
+  if (!bridgeTokenEl) return;
+  bridgeTokenEl.value = getStoredBridgeToken();
+  if (saveTokenBtn) {
+    saveTokenBtn.addEventListener('click', persistBridgeToken);
+  }
+  bridgeTokenEl.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      persistBridgeToken();
+    }
+  });
 }
 
 function getConfiguredMaxActionRounds() {
@@ -1990,6 +2064,7 @@ function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+initBridgeTokenControl();
 initActionRoundControl();
 applyLocale();
 

@@ -11,6 +11,20 @@ class GrowthArtifactTests(unittest.TestCase):
         self.assertIn("Frontend Loop", readme)
         self.assertIn("Add Singapore to the country selector", readme)
 
+    def test_readme_surfaces_three_evidence_screenshots(self):
+        readme = Path("README.md").read_text(encoding="utf-8")
+        expected_assets = {
+            "docs/assets/screenshot-connection-success.svg": "Bridge connected",
+            "docs/assets/screenshot-network-error.svg": "Network evidence",
+            "docs/assets/screenshot-json-verified.svg": "Verified: Singapore",
+        }
+
+        for asset, phrase in expected_assets.items():
+            self.assertIn(asset, readme)
+            text = Path(asset).read_text(encoding="utf-8")
+            ET.parse(asset)
+            self.assertIn(phrase, text)
+
     def test_readme_surfaces_product_differentiation_early(self):
         readme = Path("README.md").read_text(encoding="utf-8")
         early = readme[:3000]
@@ -20,6 +34,17 @@ class GrowthArtifactTests(unittest.TestCase):
         self.assertIn("inside F12", early)
         self.assertIn("MCP", early)
         self.assertIn("Playwright", early)
+
+    def test_project_branding_targets_any_cli_agent(self):
+        pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+        manifest = Path("extension/manifest.json").read_text(encoding="utf-8")
+        packaged_manifest = Path("cc_devtools/extension/manifest.json").read_text(encoding="utf-8")
+
+        self.assertIn('description = "Connect any CLI agent to Chrome F12 DevTools"', pyproject)
+        self.assertIn('"name": "cc-devtools"', manifest)
+        self.assertIn('"name": "cc-devtools"', packaged_manifest)
+        self.assertIn("Claude Code, Codex, or any CLI agent", manifest)
+        self.assertIn("Claude Code, Codex, or any CLI agent", packaged_manifest)
 
     def test_demo_script_is_copy_pasteable(self):
         script = Path("docs/DEMO_SCRIPT.md")

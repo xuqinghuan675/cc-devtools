@@ -32,6 +32,8 @@ Do not set `CC_DEVTOOLS_WRITE_ROOT` to your home directory or drive root.
 
 Local writes are disabled by default in both bridge implementations. `[ACTION:save]` and `write_file` require `CC_DEVTOOLS_ENABLE_WRITE=1`; changing the panel permission mode does not enable file writes.
 
+The Windows installer generates a random `CC_DEVTOOLS_TOKEN`, writes it into `start-bridge.bat`, and expects the same token to be saved in the DevTools panel. If you start either bridge manually, set `CC_DEVTOOLS_TOKEN` yourself for the same shared-token check.
+
 ## CLI Permission Boundary
 
 The DevTools panel sends an explicit CLI permission mode with each message:

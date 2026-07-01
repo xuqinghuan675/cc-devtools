@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Claude Code DevTools",
+  "name": "cc-devtools",
   "version": "0.1.0",
-  "description": "在 F12 DevTools 中接入 Claude Code，阅览和操作网页内容",
+  "description": "Bring Claude Code, Codex, or any CLI agent into Chrome F12 DevTools",
   "devtools_page": "devtools.html",
   "permissions": ["activeTab", "storage", "clipboardWrite"],
   "host_permissions": ["<all_urls>"],

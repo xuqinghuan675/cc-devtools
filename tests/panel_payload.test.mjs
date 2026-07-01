@@ -7,6 +7,12 @@ function loadPanelContext(options = {}) {
   const source = readFileSync('cc_devtools/extension/panel/panel.js', 'utf8');
   const definitionsOnly = source.split('\nsendBtn.addEventListener')[0];
   const sentMessages = [];
+  const storage = options.storage || {
+    values: new Map(),
+    getItem(key) { return this.values.get(key) || null; },
+    setItem(key, value) { this.values.set(key, String(value)); },
+    removeItem(key) { this.values.delete(key); },
+  };
   const projectScanResult = options.projectScanResult ?? {
     framework: 'React',
     bundler: 'Vite',
@@ -28,12 +34,16 @@ function loadPanelContext(options = {}) {
   const workflowEl = { ...emptyEl, value: 'local-data-patch' };
   const permissionModeEl = { ...emptyEl, value: 'auto' };
   const maxActionRoundsEl = { ...emptyEl, value: '5' };
+  const bridgeTokenEl = { ...emptyEl, value: '' };
+  const saveTokenBtn = { ...emptyEl };
   const tokenUsageEl = { ...emptyEl };
   const context = {
     __sentMessages: sentMessages,
     __workflowEl: workflowEl,
     __permissionModeEl: permissionModeEl,
     __maxActionRoundsEl: maxActionRoundsEl,
+    __bridgeTokenEl: bridgeTokenEl,
+    __storage: storage,
     __tokenUsageEl: tokenUsageEl,
     clearTimeout() {},
     console,
@@ -44,6 +54,8 @@ function loadPanelContext(options = {}) {
         if (selector === '#workflow-select') return workflowEl;
         if (selector === '#permission-mode-select') return permissionModeEl;
         if (selector === '#max-action-rounds') return maxActionRoundsEl;
+        if (selector === '#bridge-token') return bridgeTokenEl;
+        if (selector === '#save-token-btn') return saveTokenBtn;
         if (selector === '#token-usage') return tokenUsageEl;
         return { ...emptyEl };
       },
@@ -68,9 +80,10 @@ function loadPanelContext(options = {}) {
         network: {},
       },
     },
+    localStorage: storage,
     navigator: { clipboard: { writeText() {} } },
     setTimeout() {},
-    window: {},
+    window: { localStorage: storage },
     WebSocket: { OPEN: 1 },
   };
   vm.createContext(context);
@@ -129,6 +142,16 @@ test('token usage estimate formats as raw, k, and M units', () => {
   assert.equal(context.formatCompactTokenCount(999), '999');
   assert.equal(context.formatCompactTokenCount(1500), '1.5k');
   assert.equal(context.formatCompactTokenCount(1200000), '1.2M');
+});
+
+test('bridge token control stores token and appends it to the websocket URL', () => {
+  const context = loadPanelContext();
+
+  context.__bridgeTokenEl.value = 'secret token';
+  context.persistBridgeToken();
+
+  assert.equal(context.__storage.getItem('CC_DEVTOOLS_TOKEN'), 'secret token');
+  assert.equal(context.buildWebSocketUrl(), 'ws://localhost:9876?token=secret%20token');
 });
 
 test('token usage display accumulates chat payload text', () => {
