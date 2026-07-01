@@ -1,8 +1,8 @@
 import { WebSocketServer } from 'ws';
 import { spawn } from 'child_process';
 import { createServer } from 'http';
-import { writeFileSync, mkdirSync, existsSync } from 'fs';
-import { dirname } from 'path';
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
+import { dirname, extname, join } from 'path';
 
 import { listFiles, readFileInsideRoot } from './file-actions.js';
 import { buildPermissionArgs, fileWriteEnabled, normalizePermissionMode } from './permissions.js';
@@ -160,6 +160,17 @@ const server = createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok' }));
+    return;
+  }
+  if (req.url.startsWith('/files/')) {
+    const filePath = join(WRITE_ROOT, req.url.slice(7));
+    if (!filePath.startsWith(WRITE_ROOT)) { res.writeHead(403); res.end(); return; }
+    try {
+      const content = readFileSync(filePath);
+      const mime = { '.ico':'image/x-icon','.png':'image/png','.jpg':'image/jpeg','.svg':'image/svg+xml','.json':'application/json','.js':'text/javascript','.css':'text/css','.html':'text/html' }[extname(filePath).toLowerCase()] || 'application/octet-stream';
+      res.writeHead(200, { 'Content-Type': mime, 'Access-Control-Allow-Origin': '*' });
+      res.end(content);
+    } catch { res.writeHead(404); res.end(); }
     return;
   }
   res.writeHead(404);

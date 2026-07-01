@@ -3,10 +3,17 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import vm from 'node:vm';
 
-function loadPanelContext() {
+function loadPanelContext(options = {}) {
   const source = readFileSync('cc_devtools/extension/panel/panel.js', 'utf8');
   const definitionsOnly = source.split('\nsendBtn.addEventListener')[0];
   const sentMessages = [];
+  const projectScanResult = options.projectScanResult ?? {
+    framework: 'React',
+    bundler: 'Vite',
+    entryFiles: ['src/App.jsx'],
+    dataHints: ['public/cc-devtools/countries.json'],
+  };
+  const inspectedConsoleLogs = options.inspectedConsoleLogs || [];
   const emptyEl = {
     addEventListener() {},
     appendChild() {},
@@ -38,12 +45,19 @@ function loadPanelContext() {
     chrome: {
       devtools: {
         inspectedWindow: {
-          eval: (code, callback) => callback({
-            url: 'http://localhost:5173/',
-            title: 'Country Selector Loop Demo',
-            bodyText: 'Country selector demo page',
-            dom: '<main><select id="country-select"></select></main>',
-          }, false),
+          eval: (code, callback) => {
+            if (code.includes('var ctx = {};')) {
+              callback({
+                url: 'http://localhost:5173/',
+                title: 'Country Selector Loop Demo',
+                bodyText: 'Country selector demo page',
+                dom: '<main><select id="country-select"></select></main>',
+                ...(code.includes('__cc_console_logs') ? { console: inspectedConsoleLogs.join('\n') } : {}),
+              }, false);
+              return;
+            }
+            callback(undefined, false);
+          },
         },
         network: {},
       },
@@ -66,12 +80,7 @@ function loadPanelContext() {
             id: msg.id,
             type: 'file_result',
             success: true,
-            result: {
-              framework: 'React',
-              bundler: 'Vite',
-              entryFiles: ['src/App.jsx'],
-              dataHints: ['public/cc-devtools/countries.json']
-            }
+            result: ${JSON.stringify(projectScanResult)}
           });
         }
       }
@@ -116,6 +125,32 @@ test('send auto-attaches project context in Frontend Loop mode', async () => {
     entryFiles: ['src/App.jsx'],
     dataHints: ['public/cc-devtools/countries.json'],
   });
+});
+
+test('send preserves markdown project scan in Frontend Loop mode', async () => {
+  const markdownScan = [
+    '# Frontend Project Scan',
+    'Framework: React',
+    'Bundler: Vite',
+  ].join('\n');
+  const context = loadPanelContext({ projectScanResult: markdownScan });
+  context.__workflowEl.value = 'frontend-loop';
+
+  await context.send({ content: 'Use the scanned project context' });
+
+  const chat = context.__sentMessages.find((msg) => msg.type === 'chat');
+  assert.equal(chat.projectContext, markdownScan);
+});
+
+test('send auto-attaches inspected console logs', async () => {
+  const context = loadPanelContext({
+    inspectedConsoleLogs: ['[ERROR] Failed to load countries'],
+  });
+
+  await context.send({ content: 'Diagnose the page error' });
+
+  const chat = context.__sentMessages.find((msg) => msg.type === 'chat');
+  assert.equal(chat.pageContext.console, '[ERROR] Failed to load countries');
 });
 
 test('send does not auto-scan project context outside Frontend Loop mode', async () => {

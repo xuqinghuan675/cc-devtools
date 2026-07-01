@@ -373,6 +373,12 @@ function collectPageContext(options = {}) {
       ctx.title = document.title;
 
       try {
+        ctx.console = window.__cc_console_logs ? window.__cc_console_logs.join('\\n') : '';
+      } catch(e) {
+        ctx.console = '';
+      }
+
+      try {
         var clone = document.body.cloneNode(true);
         var removes = clone.querySelectorAll('script, style, noscript, svg, iframe, [aria-hidden="true"]');
         removes.forEach(function(el) { el.remove(); });
@@ -397,6 +403,7 @@ function collectPageContext(options = {}) {
         window.__cc_pageUrl = result.url;
         window.__cc_pageTitle = result.title;
         window.__cc_bodyText = result.bodyText;
+        window.__cc_consoleLogs = result.console || '';
         window.__cc_dom = result.dom;
         pageInfoEl.textContent = result.title || result.url || '';
         if (!options.quiet) addSystemMessage(t('pageContextCollected'));
@@ -424,7 +431,8 @@ function normalizeProjectContext(result) {
   if (typeof result !== 'string') return result;
 
   const trimmed = result.trim();
-  if (!trimmed || (trimmed[0] !== '{' && trimmed[0] !== '[')) return null;
+  if (!trimmed) return null;
+  if (trimmed[0] !== '{' && trimmed[0] !== '[') return trimmed.substring(0, 8000);
 
   try {
     return JSON.parse(trimmed);
