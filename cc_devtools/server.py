@@ -279,6 +279,27 @@ def _response_content(response):
     return json.dumps(response, ensure_ascii=False)
 
 
+def _cli_failure_detail(stdout, stderr):
+    parts = []
+    stderr_tail = _tail(stderr)
+    if stderr_tail:
+        parts.append(f"Stderr: {stderr_tail}")
+
+    stdout_tail = _tail(stdout)
+    if stdout_tail:
+        stdout_detail = stdout_tail
+        try:
+            parsed = json.loads(str(stdout).strip())
+        except json.JSONDecodeError:
+            pass
+        else:
+            if isinstance(parsed, dict):
+                stdout_detail = _response_content(parsed) or stdout_tail
+        parts.append(f"Stdout: {stdout_detail}")
+
+    return ". ".join(parts) if parts else "No stderr/stdout"
+
+
 def call_cc(prompt, permission_mode=None):
     command = [CC_CMD, "-p"]
     command.extend(_permission_args(permission_mode))
@@ -296,10 +317,10 @@ def call_cc(prompt, permission_mode=None):
         )
         _write_cli_log(command, result=result, prompt_length=len(prompt))
         if result.returncode != 0:
-            stderr = _tail(result.stderr)
+            detail = _cli_failure_detail(result.stdout, result.stderr)
             raise RuntimeError(
                 f"CC exited with code {result.returncode}. "
-                f"Command: {_command_display(command)}. Stderr: {stderr}. Log: {CLI_LOG_PATH}"
+                f"Command: {_command_display(command)}. {detail}. Log: {CLI_LOG_PATH}"
             )
 
         stdout = result.stdout

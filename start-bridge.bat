@@ -23,6 +23,10 @@ if defined CC_DEVTOOLS_TOKEN (
     echo   WebSocket token: not configured
 )
 echo.
+echo   Keep this window open while using the F12 panel.
+echo   If chat fails while connected, run:
+echo   %CC_DEVTOOLS_CMD% -p --output-format json "Reply OK"
+echo.
 echo   Preparing bridge port %CC_DEVTOOLS_PORT%
 for /f "tokens=5" %%P in ('netstat -ano ^| findstr /C:":%CC_DEVTOOLS_PORT%" ^| findstr "LISTENING"') do (
     if not "%%P"=="0" (
@@ -30,10 +34,6 @@ for /f "tokens=5" %%P in ('netstat -ano ^| findstr /C:":%CC_DEVTOOLS_PORT%" ^| f
         taskkill /F /PID %%P >nul 2>&1
     )
 )
-echo.
-echo   Keep this window open while using the F12 panel.
-echo   If chat fails while connected, run:
-echo   %CC_DEVTOOLS_CMD% -p --output-format json "Reply OK"
 echo.
 rem cc-devtools
 python -m cc_devtools.server

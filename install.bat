@@ -123,6 +123,14 @@ echo echo   Keep this window open while using the F12 panel.
 echo echo   If chat fails while connected, run:
 echo echo   %%CC_DEVTOOLS_CMD%% -p --output-format json "Reply OK"
 echo echo.
+echo echo   Preparing bridge port %%CC_DEVTOOLS_PORT%%
+echo for /f "tokens=5" %%%%P in ^('netstat -ano ^^^| findstr /C:":%%CC_DEVTOOLS_PORT%%" ^^^| findstr "LISTENING"'^) do ^(
+echo     if not "%%%%P"=="0" ^(
+echo         echo   Stopping existing process on port %%CC_DEVTOOLS_PORT%%: %%%%P
+echo         taskkill /F /PID %%%%P ^>nul 2^>^&1
+echo     ^)
+echo ^)
+echo echo.
 echo rem cc-devtools
 echo %PYTHON% -m cc_devtools.server
 echo set "BRIDGE_EXIT=%%ERRORLEVEL%%"

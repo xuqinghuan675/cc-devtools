@@ -104,6 +104,43 @@ function buildPrompt(messages, pageContext, workflow, projectContext) {
   return parts.join('\n');
 }
 
+function tail(text, limit = 1200) {
+  return String(text || '').trim().slice(-limit);
+}
+
+function responseContent(response) {
+  for (const key of ['content', 'result', 'message']) {
+    if (Object.prototype.hasOwnProperty.call(response, key) && response[key] !== null) {
+      return String(response[key]);
+    }
+  }
+  return JSON.stringify(response);
+}
+
+function cliFailureDetail(stdout, stderr) {
+  const parts = [];
+  const stderrTail = tail(stderr);
+  if (stderrTail) {
+    parts.push(`Stderr: ${stderrTail}`);
+  }
+
+  const stdoutTail = tail(stdout);
+  if (stdoutTail) {
+    let stdoutDetail = stdoutTail;
+    try {
+      const parsed = JSON.parse(String(stdout).trim());
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        stdoutDetail = responseContent(parsed) || stdoutTail;
+      }
+    } catch {
+      // Keep raw stdout when the CLI did not emit JSON.
+    }
+    parts.push(`Stdout: ${stdoutDetail}`);
+  }
+
+  return parts.join('. ') || 'No stderr/stdout';
+}
+
 function callCC(prompt, permissionMode) {
   return new Promise((resolve, reject) => {
     const cc = spawn(CC_CMD, [
@@ -135,7 +172,7 @@ function callCC(prompt, permissionMode) {
     cc.on('close', (code) => {
       clearTimeout(timer);
       if (code !== 0) {
-        reject(new Error(`CC exited with code ${code}: ${stderr}`));
+        reject(new Error(`CC exited with code ${code}. ${cliFailureDetail(stdout, stderr)}`));
         return;
       }
       try {

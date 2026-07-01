@@ -98,6 +98,18 @@ class CallCCTests(unittest.TestCase):
             self.assertIn("stdout_length=0", log_text)
             self.assertIn("prompt_length=5", log_text)
 
+    def test_nonzero_cli_output_includes_stdout_json_error(self):
+        completed = subprocess.CompletedProcess(
+            args=["cc"],
+            returncode=1,
+            stdout='{"type":"result","is_error":true,"api_error_status":402,"result":"API Error: 402 Insufficient Balance"}',
+            stderr="",
+        )
+
+        with patch("cc_devtools.server.subprocess.run", return_value=completed):
+            with self.assertRaisesRegex(RuntimeError, "API Error: 402 Insufficient Balance"):
+                call_cc("hello")
+
     def test_json_null_cli_output_raises_actionable_error(self):
         completed = subprocess.CompletedProcess(args=["cc"], returncode=0, stdout="null", stderr="")
 
