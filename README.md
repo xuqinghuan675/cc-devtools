@@ -13,6 +13,15 @@ cc-devtools lets Claude Code, Codex, local LLM CLIs, and other terminal AI tools
 
 > Instead of copying DOM, console errors, network failures, and source snippets into an AI chat, let the AI gather the evidence from DevTools.
 
+## Why This Instead of Another Browser Tool
+
+- **No new API key**: use the CLI AI you already run, including Claude Code, Codex, local LLM CLIs, or custom terminal agents.
+- **Any CLI AI inside F12**: the bridge speaks WebSocket to the DevTools panel and stdin/stdout to your agent, so it is not tied to one hosted model vendor.
+- **DevTools-native evidence**: page text, DOM, console, network, selectors, and local frontend context arrive in one chat surface.
+- **Different from MCP-only flows**: MCP servers are good tool backends; cc-devtools puts the operator UI directly inside Chrome F12.
+- **Different from Playwright MCP**: Playwright is strongest for scripted automation; cc-devtools is optimized for interactive debugging, local file patching, and browser verification loops.
+- **CDP without writing CDP glue**: users can ask for inspection, selectors, clicks, inputs, and verification without hand-writing Chrome DevTools Protocol scripts.
+
 [中文 README](README_CN.md) · [Quickstart](docs/QUICKSTART.md) · [Demo script](docs/DEMO_SCRIPT.md) · [Use cases](docs/USE_CASES.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
 
 ## Why Developers Use It
@@ -68,6 +77,7 @@ file list/read, and opt-in local writes.
 ```
 
 cc-devtools does not require its own API key. It starts your configured CLI AI command and sends it structured page context plus workflow instructions.
+The panel also sends a CLI permission mode with each message. The default is `auto`; choose `plan` for planning-only sessions or `bypassPermissions` only for trusted disposable sandboxes.
 
 ## Quick Start
 
@@ -103,6 +113,18 @@ For screenshots, troubleshooting, and detailed Windows steps, see [docs/QUICKSTA
 | Frontend Loop | Run the full live-page -> auto project context -> file-patch -> browser-verification loop |
 
 The workflow prompts live in [`cc_devtools/skills/frontend-devtools-workflows`](cc_devtools/skills/frontend-devtools-workflows/SKILL.md).
+
+## CLI Permission Modes
+
+| Mode | What it sends to the CLI |
+|---|---|
+| Auto | `--permission-mode auto` (default) |
+| Plan | `--permission-mode plan` |
+| Bypass | `--permission-mode bypassPermissions` |
+
+The permission-mode dropdown does not enable local file writes. `[ACTION:save]` / `write_file` still require `CC_DEVTOOLS_ENABLE_WRITE=1` in both the Python bridge and the Node bridge.
+
+Action execution stays lightweight by default: read-only actions run automatically, `click` / `input` / `press` continue to work in Auto mode, and only higher-risk `eval`, `save`, and `file:read` ask for panel confirmation. Plan mode blocks mutating actions; Bypass mode skips panel confirmation but does not bypass bridge write-root, sensitive-file, or `CC_DEVTOOLS_ENABLE_WRITE` checks.
 
 ## Actions
 
@@ -143,6 +165,8 @@ npm install
 node server.js
 ```
 
+The Node bridge is an alternative path, but it follows the same default `auto` permission mode and the same explicit `CC_DEVTOOLS_ENABLE_WRITE=1` write gate.
+
 ## Configuration
 
 | Environment variable | Default | Description |
@@ -151,21 +175,25 @@ node server.js
 | `CC_DEVTOOLS_PORT` | `9876` | Local WebSocket port |
 | `CC_DEVTOOLS_WRITE_ROOT` | current working directory | Directory where file actions may read and, when enabled, write |
 | `CC_DEVTOOLS_ENABLE_WRITE` | unset | Set to `1` to enable `[ACTION:save]` / `write_file` |
+| `CC_DEVTOOLS_PERMISSION_MODE` | `auto` | Default CLI permission mode when the panel does not send one; allowed values include `auto`, `plan`, and `bypassPermissions` |
 | `CC_DEVTOOLS_TOKEN` | unset | Optional shared token required by the bridge when configured |
 | `CC_DEVTOOLS_ALLOWED_ORIGINS` | `chrome-extension://*` behavior | Optional comma-separated exact origins or `prefix*` patterns |
-| `CC_DEVTOOLS_BYPASS` | unset | Set to `1` only if you explicitly want `--permission-mode bypassPermissions` |
+| `CC_DEVTOOLS_BYPASS` | unset | Legacy shortcut for `bypassPermissions` when the panel does not send a permission mode |
 
 ## Safety Model
 
 - Use the extension only on pages you trust.
 - Page text, DOM snippets, console logs, network summaries, and action results are sent to your CLI AI process.
+- Browser-originated context is marked as untrusted prompt data before it is sent to the CLI AI.
+- Token-like values in page URL, body text, DOM snippets, console logs, network URLs, and action results are redacted where they match common key names.
 - `[ACTION:eval]` runs JavaScript in the inspected page.
 - Page interaction actions can click, type, or press keys on the inspected page.
 - `[ACTION:project:scan]` reads local project metadata under the bridge write root.
 - File actions cannot leave the configured write root, and sensitive files are rejected inside the root.
 - File writes are disabled by default; enable them only for disposable or trusted project roots.
 - Browser WebSocket clients are accepted from Chrome extension origins by default; set `CC_DEVTOOLS_TOKEN` for an additional shared-token check.
-- Claude Code `bypassPermissions` is disabled by default; opt in with `CC_DEVTOOLS_BYPASS=1` only when you understand the risk.
+- The panel defaults to Claude Code `--permission-mode auto`. Select `bypassPermissions` only when you understand the risk.
+- In Auto mode, `eval`, `save`, and `file:read` require panel confirmation; `click`, `input`, and `press` remain automatic for frontend verification workflows.
 - Automatic action-result loops stop after five rounds per user message.
 - The DevTools panel escapes ordinary assistant HTML before rendering action blocks.
 

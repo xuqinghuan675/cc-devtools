@@ -11,6 +11,16 @@ class GrowthArtifactTests(unittest.TestCase):
         self.assertIn("Frontend Loop", readme)
         self.assertIn("Add Singapore to the country selector", readme)
 
+    def test_readme_surfaces_product_differentiation_early(self):
+        readme = Path("README.md").read_text(encoding="utf-8")
+        early = readme[:3000]
+
+        self.assertIn("No new API key", early)
+        self.assertIn("Any CLI AI", early)
+        self.assertIn("inside F12", early)
+        self.assertIn("MCP", early)
+        self.assertIn("Playwright", early)
+
     def test_demo_script_is_copy_pasteable(self):
         script = Path("docs/DEMO_SCRIPT.md")
         self.assertTrue(script.exists(), "docs/DEMO_SCRIPT.md is missing")

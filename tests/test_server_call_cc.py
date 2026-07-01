@@ -4,7 +4,14 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from cc_devtools.server import _file_write_enabled, _origin_allowed, _response_content, _token_authorized, call_cc
+from cc_devtools.server import (
+    _file_write_enabled,
+    _origin_allowed,
+    _permission_mode,
+    _response_content,
+    _token_authorized,
+    call_cc,
+)
 
 
 class CallCCTests(unittest.TestCase):
@@ -31,7 +38,7 @@ class CallCCTests(unittest.TestCase):
         with patch.dict("cc_devtools.server.os.environ", {"CC_DEVTOOLS_ENABLE_WRITE": "1"}, clear=False):
             self.assertTrue(_file_write_enabled())
 
-    def test_cli_does_not_bypass_permissions_by_default(self):
+    def test_cli_uses_auto_permission_mode_by_default(self):
         completed = subprocess.CompletedProcess(args=["cc"], returncode=0, stdout='{"content":"ok"}', stderr="")
 
         with patch.dict("cc_devtools.server.os.environ", {}, clear=False):
@@ -39,10 +46,21 @@ class CallCCTests(unittest.TestCase):
                 self.assertEqual(call_cc("hello"), {"content": "ok"})
 
         command = run.call_args.args[0]
-        self.assertNotIn("--permission-mode", command)
-        self.assertNotIn("bypassPermissions", command)
+        self.assertIn("--permission-mode", command)
+        self.assertIn("auto", command)
 
-    def test_cli_bypass_permissions_requires_explicit_env_opt_in(self):
+    def test_cli_uses_requested_plan_permission_mode(self):
+        completed = subprocess.CompletedProcess(args=["cc"], returncode=0, stdout='{"content":"ok"}', stderr="")
+
+        with patch.dict("cc_devtools.server.os.environ", {}, clear=False):
+            with patch("cc_devtools.server.subprocess.run", return_value=completed) as run:
+                self.assertEqual(call_cc("hello", permission_mode="plan"), {"content": "ok"})
+
+        command = run.call_args.args[0]
+        self.assertIn("--permission-mode", command)
+        self.assertIn("plan", command)
+
+    def test_cli_bypass_permissions_requires_explicit_request_or_env_opt_in(self):
         completed = subprocess.CompletedProcess(args=["cc"], returncode=0, stdout='{"content":"ok"}', stderr="")
 
         with patch.dict("cc_devtools.server.os.environ", {"CC_DEVTOOLS_BYPASS": "1"}, clear=False):
@@ -52,6 +70,18 @@ class CallCCTests(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertIn("--permission-mode", command)
         self.assertIn("bypassPermissions", command)
+
+        with patch.dict("cc_devtools.server.os.environ", {}, clear=False):
+            with patch("cc_devtools.server.subprocess.run", return_value=completed) as run:
+                self.assertEqual(call_cc("hello", permission_mode="bypassPermissions"), {"content": "ok"})
+
+        command = run.call_args.args[0]
+        self.assertIn("--permission-mode", command)
+        self.assertIn("bypassPermissions", command)
+
+    def test_invalid_permission_mode_falls_back_to_auto(self):
+        with patch.dict("cc_devtools.server.os.environ", {}, clear=False):
+            self.assertEqual(_permission_mode("not-real"), "auto")
 
     def test_empty_cli_output_raises_actionable_error(self):
         completed = subprocess.CompletedProcess(args=["cc"], returncode=0, stdout=None, stderr="")

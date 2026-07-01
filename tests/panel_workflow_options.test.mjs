@@ -28,7 +28,14 @@ function loadLocalizedPanelContext(language = 'zh-CN') {
     { value: 'local-data-patch', textContent: 'Local Data Patch' },
     { value: 'frontend-loop', textContent: 'Frontend Loop' },
   ];
+  const permissionModeSelect = emptyEl();
+  permissionModeSelect.options = [
+    { value: 'auto', textContent: 'Auto' },
+    { value: 'plan', textContent: 'Plan' },
+    { value: 'bypassPermissions', textContent: 'Bypass' },
+  ];
   elements.set('#workflow-select', workflowSelect);
+  elements.set('#permission-mode-select', permissionModeSelect);
   for (const selector of [
     '#messages',
     '#input',
@@ -40,6 +47,7 @@ function loadLocalizedPanelContext(language = 'zh-CN') {
     '#help-panel',
     '#page-context-btn',
     '#workflow-control span',
+    '#permission-mode-control span',
     '.help-title',
   ]) {
     if (!elements.has(selector)) elements.set(selector, emptyEl());
@@ -63,7 +71,7 @@ function loadLocalizedPanelContext(language = 'zh-CN') {
   };
   vm.createContext(context);
   vm.runInContext(definitionsOnly, context);
-  return { context, elements, workflowSelect };
+  return { context, elements, workflowSelect, permissionModeSelect };
 }
 
 test('panel exposes the Frontend Loop workflow mode', () => {
@@ -72,18 +80,26 @@ test('panel exposes the Frontend Loop workflow mode', () => {
 
   assert.match(html, /<option value="frontend-loop">Frontend Loop<\/option>/);
   assert.match(packagedHtml, /<option value="frontend-loop">Frontend Loop<\/option>/);
+  assert.match(html, /<select id="permission-mode-select"/);
+  assert.match(packagedHtml, /<select id="permission-mode-select"/);
+  assert.match(html, /<option value="auto" selected>Auto<\/option>/);
+  assert.match(html, /<option value="plan">Plan<\/option>/);
+  assert.match(html, /<option value="bypassPermissions">Bypass<\/option>/);
 });
 
 test('panel localizes core controls for Chinese browsers', () => {
-  const { elements, workflowSelect } = loadLocalizedPanelContext('zh-CN');
+  const { elements, workflowSelect, permissionModeSelect } = loadLocalizedPanelContext('zh-CN');
 
   assert.equal(elements.get('#send-btn').textContent, '发送');
   assert.equal(elements.get('#page-context-btn').textContent, '收集');
   assert.equal(elements.get('#reset-btn').textContent, '重置');
   assert.equal(elements.get('#input').placeholder, '让 agent 检查、修改、点击或验证...');
+  assert.equal(elements.get('#permission-mode-control span').textContent, '模式');
   assert.equal(workflowSelect.options.find((option) => option.value === 'inspect').textContent, '检查');
   assert.equal(
     workflowSelect.options.find((option) => option.value === 'local-data-patch').textContent,
     '本地数据修改',
   );
+  assert.equal(permissionModeSelect.options.find((option) => option.value === 'auto').textContent, '自动');
+  assert.equal(permissionModeSelect.options.find((option) => option.value === 'plan').textContent, '计划');
 });

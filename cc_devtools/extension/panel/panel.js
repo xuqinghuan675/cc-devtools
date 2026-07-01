@@ -2,6 +2,8 @@ const WS_URL = 'ws://localhost:9876';
 const ACTION_RE = /\[ACTION:(eval|dom|dom:all|text|console|network|title|url|save|copy|click|input|press|file:list|file:read|project:scan)\]([\s\S]*?)\[\/ACTION\]/g;
 const MAX_ACTION_ROUNDS = 5;
 const TOKEN_STORAGE_KEYS = ['CC_DEVTOOLS_TOKEN', 'cc_devtools_token'];
+const PLAN_ALLOWED_ACTIONS = new Set(['dom', 'dom:all', 'text', 'console', 'network', 'title', 'url', 'file:list', 'project:scan']);
+const AUTO_CONFIRM_ACTIONS = new Set(['eval', 'save', 'file:read']);
 
 let ws = null;
 let reconnectTimer = null;
@@ -22,10 +24,14 @@ const helpBtn = $('#help-btn');
 const helpPanel = $('#help-panel');
 const pageContextBtn = $('#page-context-btn');
 const workflowSelectEl = $('#workflow-select');
+const permissionModeSelectEl = $('#permission-mode-select');
 
 const UI_TEXT = {
   en: {
     action: 'Action',
+    actionBlockedPlan: 'Action blocked in Plan mode. Switch to Auto or Bypass to run it.',
+    actionConfirm: 'Run this high-risk action?',
+    actionDeclined: 'Action declined by user.',
     actionLimitReached: 'Automatic action limit reached. Send a new message to continue.',
     collect: 'Collect',
     collectTitle: 'Collect current page context',
@@ -39,6 +45,8 @@ const UI_TEXT = {
     helpTitle: 'Action Reference',
     helpTitleAttr: 'Show action reference',
     inputPlaceholder: 'Ask the agent to inspect, patch, click, or verify...',
+    mode: 'Mode',
+    modeTitle: 'Choose CLI permission mode',
     notConnected: 'Not connected to Bridge Server. Run start-bridge.bat or cc-devtools first.',
     pageContextCollected: 'Page context collected',
     projectContextScanned: 'Project context scanned',
@@ -62,9 +70,17 @@ const UI_TEXT = {
       'local-data-patch': 'Local Data Patch',
       'frontend-loop': 'Frontend Loop',
     },
+    permissionModes: {
+      auto: 'Auto',
+      plan: 'Plan',
+      bypassPermissions: 'Bypass',
+    },
   },
   zh: {
     action: '动作',
+    actionBlockedPlan: '计划模式已阻止该动作。切换到自动或 Bypass 后可执行。',
+    actionConfirm: '执行这个高风险动作？',
+    actionDeclined: '用户已取消该动作。',
     actionLimitReached: '已达到自动动作轮数上限。发送新消息后可继续。',
     collect: '收集',
     collectTitle: '收集当前页面上下文',
@@ -78,6 +94,8 @@ const UI_TEXT = {
     helpTitle: '动作参考',
     helpTitleAttr: '显示动作参考',
     inputPlaceholder: '让 agent 检查、修改、点击或验证...',
+    mode: '模式',
+    modeTitle: '选择 CLI 权限模式',
     notConnected: '未连接 Bridge Server。请先运行 start-bridge.bat 或 cc-devtools。',
     pageContextCollected: '已收集页面上下文',
     projectContextScanned: '已扫描本地项目上下文',
@@ -101,6 +119,11 @@ const UI_TEXT = {
       'local-data-patch': '本地数据修改',
       'frontend-loop': '前端闭环',
     },
+    permissionModes: {
+      auto: '自动',
+      plan: '计划',
+      bypassPermissions: 'Bypass',
+    },
   },
 };
 
@@ -119,6 +142,11 @@ function workflowLabel(value) {
   return UI_TEXT[locale].workflows[value] || UI_TEXT.en.workflows[value] || value;
 }
 
+function permissionModeLabel(value) {
+  const locale = getUiLocale();
+  return UI_TEXT[locale].permissionModes[value] || UI_TEXT.en.permissionModes[value] || value;
+}
+
 function applyLocale() {
   const locale = getUiLocale();
   if (document.documentElement) {
@@ -135,6 +163,16 @@ function applyLocale() {
     if (workflowSelectEl.options) {
       Array.from(workflowSelectEl.options).forEach((option) => {
         option.textContent = workflowLabel(option.value);
+      });
+    }
+  }
+  const permissionModeLabelEl = document.querySelector('#permission-mode-control span');
+  if (permissionModeLabelEl) permissionModeLabelEl.textContent = t('mode');
+  if (permissionModeSelectEl) {
+    permissionModeSelectEl.title = t('modeTitle');
+    if (permissionModeSelectEl.options) {
+      Array.from(permissionModeSelectEl.options).forEach((option) => {
+        option.textContent = permissionModeLabel(option.value);
       });
     }
   }
@@ -277,16 +315,29 @@ function getSelectedWorkflow() {
   return workflowSelectEl ? workflowSelectEl.value : 'inspect';
 }
 
+function getSelectedPermissionMode() {
+  return permissionModeSelectEl ? permissionModeSelectEl.value : 'auto';
+}
+
 function buildChatPayload(msg) {
   const workflow = getSelectedWorkflow();
   return {
     type: 'chat',
     content: msg.content || '',
     workflow,
+    permissionMode: getSelectedPermissionMode(),
     pageContext: null,
     projectContext: workflow === 'frontend-loop' ? getProjectContextSync() : null,
     actionResults: msg.actionResults || null
   };
+}
+
+function redactSensitiveText(text) {
+  return String(text || '')
+    .replace(/([?&](?:access_token|id_token|token|auth|authorization|api[_-]?key|key|password|passwd|secret|session|cookie|csrf|jwt)=)([^&#\s]+)/gi, '$1[redacted]')
+    .replace(/\b(authorization:\s*(?:bearer|basic)\s+)[^\s,;]+/gi, '$1[redacted]')
+    .replace(/\b(cookie:\s*)[^\n]+/gi, '$1[redacted]')
+    .replace(/\b((?:access_token|id_token|token|api[_-]?key|password|passwd|secret|session|csrf|jwt)\s*[:=]\s*)(["']?)[^\s,"';&]+/gi, '$1$2[redacted]');
 }
 
 function getProjectContextSync() {
@@ -295,11 +346,11 @@ function getProjectContextSync() {
 
 function getPageContextSync() {
   return {
-    url: window.__cc_pageUrl || '',
+    url: redactSensitiveText(window.__cc_pageUrl || ''),
     title: window.__cc_pageTitle || '',
-    bodyText: window.__cc_bodyText || '',
-    console: window.__cc_consoleLogs || '',
-    dom: window.__cc_dom || ''
+    bodyText: redactSensitiveText(window.__cc_bodyText || ''),
+    console: redactSensitiveText(window.__cc_consoleLogs || ''),
+    dom: redactSensitiveText(window.__cc_dom || '')
   };
 }
 
@@ -417,7 +468,7 @@ function getConsoleLogs() {
   return new Promise((resolve) => {
     chrome.devtools.inspectedWindow.eval(
       'window.__cc_console_logs ? window.__cc_console_logs.join("\\n") : ""',
-      (result) => resolve(result || '')
+      (result) => resolve(redactSensitiveText(result || ''))
     );
   });
 }
@@ -428,7 +479,7 @@ function getNetworkHAR() {
       chrome.devtools.network.getHAR((har) => {
         if (!har || !har.entries) { resolve(''); return; }
         const entries = har.entries.slice(-20).map((e) => {
-          return `${e.request.method} ${e.request.url} → ${e.response.status} (${e.response.content?.size || 0} bytes)`;
+          return `${e.request.method} ${redactSensitiveText(e.request.url)} → ${e.response.status} (${e.response.content?.size || 0} bytes)`;
         });
         resolve(entries.join('\n'));
       });
@@ -665,6 +716,24 @@ function formatMessageText(text) {
     .replace(/\n/g, '<br>');
 }
 
+function actionPolicy(type, permissionMode = getSelectedPermissionMode()) {
+  if (permissionMode === 'bypassPermissions') return 'allow';
+  if (permissionMode === 'plan') {
+    return PLAN_ALLOWED_ACTIONS.has(type) ? 'allow' : 'block';
+  }
+  return AUTO_CONFIRM_ACTIONS.has(type) ? 'confirm' : 'allow';
+}
+
+function confirmAction(type, code) {
+  const preview = String(code || '').trim().slice(0, 240);
+  const message = `${t('actionConfirm')}\n\n[ACTION:${type}]\n${preview}`;
+  if (typeof confirm === 'function') return confirm(message);
+  if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+    return window.confirm(message);
+  }
+  return false;
+}
+
 async function executeActions(actions) {
   if (actions.length === 0) return;
   if (actionRoundCount >= MAX_ACTION_ROUNDS) {
@@ -684,8 +753,17 @@ async function executeActions(actions) {
   const actionResults = {};
   for (let i = 0; i < actions.length; i++) {
     const a = actions[i];
-    const result = await executeAction(a.type, a.code);
-    const short = result.length > 2000 ? result.substring(0, 2000) + '...(truncated)' : result;
+    const policy = actionPolicy(a.type);
+    let result;
+    if (policy === 'block') {
+      result = t('actionBlockedPlan');
+    } else if (policy === 'confirm' && !confirmAction(a.type, a.code)) {
+      result = t('actionDeclined');
+    } else {
+      result = await executeAction(a.type, a.code);
+    }
+    const resultText = redactSensitiveText(result);
+    const short = resultText.length > 2000 ? resultText.substring(0, 2000) + '...(truncated)' : resultText;
 
     const key = `[${a.type}] ${a.code.substring(0, 50)}`;
     actionResults[key] = short;

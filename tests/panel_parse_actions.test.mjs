@@ -18,19 +18,22 @@ function loadPanelContext() {
     textContent: '',
     value: '',
   };
+  const permissionModeEl = { ...emptyEl, value: 'auto' };
   const context = {
     clearTimeout() {},
+    confirm: () => true,
     console,
     document: {
       createElement: () => ({ ...emptyEl }),
       getElementById: () => emptyEl,
-      querySelector: () => emptyEl,
+      querySelector: (selector) => selector === '#permission-mode-select' ? permissionModeEl : emptyEl,
     },
     navigator: { clipboard: { writeText() {} } },
     setTimeout() {},
     window: {},
     WebSocket: { OPEN: 1 },
     __sentMessages: sentMessages,
+    __permissionModeEl: permissionModeEl,
   };
   vm.createContext(context);
   vm.runInContext(definitionsOnly, context);
@@ -98,4 +101,66 @@ test('executeActions stops after five automatic action result rounds', async () 
   }
 
   assert.equal(context.__sentMessages.length, 5);
+});
+
+test('plan mode blocks mutating and code-execution actions', async () => {
+  const context = loadPanelContext();
+  let executed = false;
+  context.__permissionModeEl.value = 'plan';
+  context.executeAction = async () => {
+    executed = true;
+    return 'ran';
+  };
+
+  await context.executeActions([{ type: 'click', code: 'button.save', placeholder: 'missing' }]);
+
+  assert.equal(executed, false);
+  assert.equal(context.__sentMessages.length, 1);
+  assert.match(Object.values(context.__sentMessages[0].actionResults)[0], /blocked/i);
+});
+
+test('auto mode asks before eval and skips execution when declined', async () => {
+  const context = loadPanelContext();
+  let executed = false;
+  context.confirm = () => false;
+  context.executeAction = async () => {
+    executed = true;
+    return 'ran';
+  };
+
+  await context.executeActions([{ type: 'eval', code: 'localStorage.clear()', placeholder: 'missing' }]);
+
+  assert.equal(executed, false);
+  assert.equal(context.__sentMessages.length, 1);
+  assert.match(Object.values(context.__sentMessages[0].actionResults)[0], /declined/i);
+});
+
+test('bypass mode executes high-risk actions without panel confirmation', async () => {
+  const context = loadPanelContext();
+  let executed = false;
+  context.__permissionModeEl.value = 'bypassPermissions';
+  context.confirm = () => {
+    throw new Error('confirm should not be called');
+  };
+  context.executeAction = async () => {
+    executed = true;
+    return 'ran';
+  };
+
+  await context.executeActions([{ type: 'eval', code: 'location.href', placeholder: 'missing' }]);
+
+  assert.equal(executed, true);
+  assert.equal(Object.values(context.__sentMessages[0].actionResults)[0], 'ran');
+});
+
+test('redactSensitiveText hides token-like values but keeps useful context', () => {
+  const { redactSensitiveText } = loadPanelContext();
+
+  const result = redactSensitiveText('GET /api?token=abc123&country=SG Authorization: Bearer secret-value');
+
+  assert.match(result, /token=\[redacted\]/);
+  assert.match(result, /country=SG/);
+  assert.match(result, /Authorization: Bearer \[redacted\]/);
+  assert.ok(!result.includes('abc123'));
+  assert.ok(!result.includes('secret-value'));
 });

@@ -30,3 +30,13 @@ test('empty paths are rejected', () => {
 
   assert.throws(() => resolveWritePath('   ', root), /empty/);
 });
+
+test('sensitive paths inside the root are rejected', () => {
+  const root = mkdtempSync(join(tmpdir(), 'cc-devtools-'));
+
+  assert.throws(() => resolveWritePath('.env', root), /sensitive path/);
+  assert.throws(() => resolveWritePath('.env.local', root), /sensitive path/);
+  assert.throws(() => resolveWritePath('.git/config', root), /sensitive path/);
+  assert.throws(() => resolveWritePath('.ssh/config', root), /sensitive path/);
+  assert.throws(() => resolveWritePath('id_ed25519', root), /sensitive path/);
+});

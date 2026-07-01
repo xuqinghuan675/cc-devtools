@@ -19,15 +19,21 @@ function loadPanelContext() {
     value: '',
   };
   const workflowEl = { ...emptyEl, value: 'local-data-patch' };
+  const permissionModeEl = { ...emptyEl, value: 'auto' };
   const context = {
     __sentMessages: sentMessages,
     __workflowEl: workflowEl,
+    __permissionModeEl: permissionModeEl,
     clearTimeout() {},
     console,
     document: {
       createElement: () => ({ ...emptyEl }),
       getElementById: () => emptyEl,
-      querySelector: (selector) => selector === '#workflow-select' ? workflowEl : { ...emptyEl },
+      querySelector: (selector) => {
+        if (selector === '#workflow-select') return workflowEl;
+        if (selector === '#permission-mode-select') return permissionModeEl;
+        return { ...emptyEl };
+      },
     },
     chrome: {
       devtools: {
@@ -80,7 +86,17 @@ test('buildChatPayload includes selected workflow', () => {
   const payload = buildChatPayload({ content: 'debug the dropdown' });
 
   assert.equal(payload.workflow, 'local-data-patch');
+  assert.equal(payload.permissionMode, 'auto');
   assert.equal(payload.content, 'debug the dropdown');
+});
+
+test('buildChatPayload includes selected permission mode', () => {
+  const context = loadPanelContext();
+  context.__permissionModeEl.value = 'plan';
+
+  const payload = context.buildChatPayload({ content: 'prepare a change plan' });
+
+  assert.equal(payload.permissionMode, 'plan');
 });
 
 test('send auto-attaches project context in Frontend Loop mode', async () => {
@@ -111,4 +127,20 @@ test('send does not auto-scan project context outside Frontend Loop mode', async
   assert.equal(context.__sentMessages.length, 1);
   assert.equal(context.__sentMessages[0].type, 'chat');
   assert.equal(context.__sentMessages[0].projectContext, null);
+});
+
+test('getNetworkHAR redacts token-like URL values', async () => {
+  const context = loadPanelContext();
+  context.chrome.devtools.network.getHAR = (callback) => callback({
+    entries: [{
+      request: { method: 'GET', url: 'https://api.test/users?token=abc123&country=SG' },
+      response: { status: 200, content: { size: 42 } },
+    }],
+  });
+
+  const result = await context.getNetworkHAR();
+
+  assert.match(result, /token=\[redacted\]/);
+  assert.match(result, /country=SG/);
+  assert.ok(!result.includes('abc123'));
 });
