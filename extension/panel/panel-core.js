@@ -29,6 +29,19 @@
   const EVIDENCE_TYPES = ['console', 'network', 'dom', 'action', 'project', 'file', 'verification', 'manual'];
   const EVIDENCE_SEVERITIES = ['info', 'warning', 'error'];
   const RECORDER_EVENT_TYPES = ['click', 'press', 'input', 'route', 'title', 'console', 'network', 'storage', 'action'];
+  const PATCH_STATUSES = ['draft', 'preview', 'applied', 'verifying', 'verified', 'failed', 'rolled_back', 'rollback_failed'];
+  const DOM_DIAGNOSTIC_RESULTS = ['visible', 'clickable', 'covered', 'clipped', 'disabled', 'pointer-blocked'];
+  const SCREENSHOT_STATUSES = ['supported', 'unsupported', 'permission_required', 'failed'];
+  const PATCH_TRANSITIONS = {
+    draft: ['preview'],
+    preview: ['applied', 'failed'],
+    applied: ['verifying', 'failed'],
+    verifying: ['verified', 'failed'],
+    failed: ['rolled_back', 'rollback_failed'],
+    verified: [],
+    rolled_back: [],
+    rollback_failed: [],
+  };
   const RECORDER_WINDOW_MS = 120000;
   const RECORDER_MAX_EVENTS = 300;
   const RECORDER_MAX_BYTES = 1024 * 1024;
@@ -138,6 +151,114 @@
       selected: Boolean(input.selected),
       tags: Array.isArray(input.tags) ? input.tags.map((tag) => sanitizeDisplayText(tag)) : [],
     };
+  }
+
+  function normalizeScreenshotStatus(status) {
+    return SCREENSHOT_STATUSES.includes(status) ? status : 'unsupported';
+  }
+
+  function plainObject(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return { ...value };
+  }
+
+  function plainArray(value) {
+    return Array.isArray(value) ? value.map((item) => plainObject(item)) : [];
+  }
+
+  function truthyDisabledValue(value) {
+    return value === true || String(value || '').toLowerCase() === 'true' || value === 'disabled';
+  }
+
+  function numberValue(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function hasPositiveRect(rect = {}) {
+    const width = numberValue(rect.width);
+    const height = numberValue(rect.height);
+    return width !== null && height !== null && width > 0 && height > 0;
+  }
+
+  function isDisplayed(computedStyle = {}) {
+    const display = String(computedStyle.display || '').toLowerCase();
+    const visibility = String(computedStyle.visibility || '').toLowerCase();
+    const opacity = numberValue(computedStyle.opacity);
+    return display !== 'none'
+      && visibility !== 'hidden'
+      && visibility !== 'collapse'
+      && (opacity === null || opacity > 0);
+  }
+
+  function topElementCoversTarget(topElementAtCenter = {}) {
+    if (!topElementAtCenter || typeof topElementAtCenter !== 'object') return false;
+    if (topElementAtCenter.matchesTarget === true || topElementAtCenter.containsTarget === true) return false;
+    return Boolean(
+      topElementAtCenter.matchesTarget === false
+      || topElementAtCenter.containsTarget === false
+      || topElementAtCenter.tag
+      || topElementAtCenter.selector
+    );
+  }
+
+  function centerIsClipped(input = {}) {
+    const point = input.clickableCenterPoint || {};
+    if (point.inViewport === false) return true;
+    return plainArray(input.overflowClippingChain).some((item) => item.clipsCenter === true || item.clipped === true);
+  }
+
+  function classifyDomDiagnostic(input = {}) {
+    if (DOM_DIAGNOSTIC_RESULTS.includes(input.diagnosticResult)) return input.diagnosticResult;
+    const state = plainObject(input.state);
+    const computedStyle = plainObject(input.computedStyle);
+    const rect = plainObject(input.boundingClientRect);
+
+    if (truthyDisabledValue(state.disabled) || truthyDisabledValue(state.ariaDisabled) || truthyDisabledValue(input.disabled) || truthyDisabledValue(input.ariaDisabled)) {
+      return 'disabled';
+    }
+    if (String(computedStyle.pointerEvents || '').toLowerCase() === 'none') return 'pointer-blocked';
+    if (centerIsClipped(input)) return 'clipped';
+    if (topElementCoversTarget(input.topElementAtCenter)) return 'covered';
+    if (isDisplayed(computedStyle) && hasPositiveRect(rect)) return 'clickable';
+    return 'visible';
+  }
+
+  function createDomDiagnosticPayload(input = {}) {
+    const payload = {
+      schemaVersion: SCHEMA_VERSION,
+      selector: String(input.selector || ''),
+      diagnosticResult: classifyDomDiagnostic(input),
+      screenshotStatus: normalizeScreenshotStatus(input.screenshotStatus),
+      element: plainObject(input.element),
+      domSummary: String(input.domSummary || ''),
+      boundingClientRect: plainObject(input.boundingClientRect),
+      computedStyle: plainObject(input.computedStyle),
+      state: plainObject(input.state),
+      viewport: plainObject(input.viewport),
+      overflowClippingChain: plainArray(input.overflowClippingChain),
+      clickableCenterPoint: plainObject(input.clickableCenterPoint),
+      topElementAtCenter: plainObject(input.topElementAtCenter),
+    };
+    if (input.error) payload.error = String(input.error);
+    return payload;
+  }
+
+  function createDomDiagnosticEvidence(input = {}) {
+    const payload = createDomDiagnosticPayload(input);
+    const subject = payload.domSummary || payload.selector || payload.element.tag || 'element';
+    const result = payload.diagnosticResult;
+    return createEvidenceItem({
+      id: input.id,
+      type: 'dom',
+      severity: result === 'clickable' || result === 'visible' ? 'info' : 'warning',
+      source: 'visual-dom',
+      title: `DOM diagnostic: ${subject}`,
+      summary: `${result} | screenshot: ${payload.screenshotStatus}`,
+      payload,
+      selected: false,
+      tags: ['visual', 'dom', 'diagnostic'],
+    });
   }
 
   function evidenceSearchText(item) {
@@ -419,6 +540,133 @@
       result.push(text);
     }
     return result;
+  }
+
+  function normalizePatchStatus(status) {
+    return PATCH_STATUSES.includes(status) ? status : 'draft';
+  }
+
+  function normalizePatchFiles(files) {
+    return (Array.isArray(files) ? files : []).map((file) => ({
+      path: String(file && file.path ? file.path : '').trim(),
+      proposedContent: String(file && file.proposedContent !== undefined ? file.proposedContent : ''),
+    })).filter((file) => file.path);
+  }
+
+  function normalizePatchVerification(verification = {}) {
+    return {
+      status: String(verification.status || 'not_started'),
+      summary: String(verification.summary || ''),
+      evidenceIds: uniqueStrings(verification.evidenceIds || []),
+      updatedAt: String(verification.updatedAt || ''),
+    };
+  }
+
+  function normalizePatchBackups(backups = {}) {
+    const result = {};
+    for (const [key, backup] of Object.entries(backups || {})) {
+      const path = String((backup && backup.path) || key || '').trim();
+      if (!path) continue;
+      const content = String(backup && backup.content !== undefined ? backup.content : '');
+      result[path] = {
+        schemaVersion: SCHEMA_VERSION,
+        path,
+        content,
+        contentLength: Number.isFinite(Number(backup && backup.contentLength)) ? Number(backup.contentLength) : content.length,
+        createdAt: String((backup && backup.createdAt) || ''),
+      };
+    }
+    return result;
+  }
+
+  function createPatchSession(input = {}) {
+    const createdAt = input.createdAt || new Date().toISOString();
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      id: input.id || createId('patch'),
+      createdAt,
+      updatedAt: input.updatedAt || createdAt,
+      status: normalizePatchStatus(input.status),
+      hypothesis: String(input.hypothesis || ''),
+      files: normalizePatchFiles(input.files),
+      backups: normalizePatchBackups(input.backups),
+      diff: String(input.diff || ''),
+      evidenceIds: uniqueStrings(input.evidenceIds || []),
+      verification: normalizePatchVerification(input.verification),
+    };
+  }
+
+  function canTransitionPatchStatus(fromStatus, toStatus) {
+    const from = normalizePatchStatus(fromStatus);
+    return (PATCH_TRANSITIONS[from] || []).includes(toStatus);
+  }
+
+  function transitionPatchSession(session, nextStatus, updates = {}) {
+    const current = createPatchSession(session || {});
+    if (!PATCH_STATUSES.includes(nextStatus)) {
+      throw new Error(`Invalid patch status: ${nextStatus}`);
+    }
+    if (!canTransitionPatchStatus(current.status, nextStatus)) {
+      throw new Error(`Invalid patch status transition: ${current.status} -> ${nextStatus}`);
+    }
+    const verification = updates.verification
+      ? normalizePatchVerification({ ...current.verification, ...updates.verification })
+      : current.verification;
+    return createPatchSession({
+      ...current,
+      ...updates,
+      status: nextStatus,
+      updatedAt: updates.updatedAt || new Date().toISOString(),
+      files: updates.files || current.files,
+      backups: updates.backups || current.backups,
+      evidenceIds: updates.evidenceIds || current.evidenceIds,
+      verification,
+    });
+  }
+
+  function splitPatchLines(content) {
+    const text = String(content ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    if (!text) return [];
+    const lines = text.split('\n');
+    if (lines.length && lines[lines.length - 1] === '') lines.pop();
+    return lines;
+  }
+
+  function buildPatchDiff(filePath, originalContent, proposedContent) {
+    const path = String(filePath || '').trim() || '(unknown)';
+    const before = splitPatchLines(originalContent);
+    const after = splitPatchLines(proposedContent);
+    const lines = [`--- ${path}`, `+++ ${path}`];
+    const maxLines = Math.max(before.length, after.length);
+    for (let index = 0; index < maxLines; index += 1) {
+      const beforeLine = before[index];
+      const afterLine = after[index];
+      if (beforeLine === afterLine) {
+        lines.push(` ${beforeLine || ''}`);
+      } else {
+        if (index < before.length) lines.push(`-${beforeLine || ''}`);
+        if (index < after.length) lines.push(`+${afterLine || ''}`);
+      }
+    }
+    return lines.join('\n');
+  }
+
+  function createPatchBackup(path, content, createdAt = '') {
+    const backupContent = String(content ?? '');
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      path: String(path || '').trim(),
+      content: backupContent,
+      contentLength: backupContent.length,
+      createdAt: createdAt || new Date().toISOString(),
+    };
+  }
+
+  function previewPatchSession(session, preview = {}) {
+    return transitionPatchSession(session, 'preview', {
+      backups: preview.backups || {},
+      diff: preview.diff || '',
+    });
   }
 
   function summarizeInputValue(value, selector = '') {
@@ -939,6 +1187,9 @@
     SCHEMA_VERSION,
     EVIDENCE_TYPES,
     RECORDER_EVENT_TYPES,
+    PATCH_STATUSES,
+    DOM_DIAGNOSTIC_RESULTS,
+    SCREENSHOT_STATUSES,
     RECORDER_WINDOW_MS,
     RECORDER_MAX_EVENTS,
     RECORDER_MAX_BYTES,
@@ -970,5 +1221,15 @@
     buildGithubIssueMarkdown,
     getSelectorConfidence,
     createGeneratedTestDraft,
+    createPatchSession,
+    canTransitionPatchStatus,
+    transitionPatchSession,
+    buildPatchDiff,
+    createPatchBackup,
+    previewPatchSession,
+    normalizeScreenshotStatus,
+    classifyDomDiagnostic,
+    createDomDiagnosticPayload,
+    createDomDiagnosticEvidence,
   };
 });

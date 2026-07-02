@@ -9,6 +9,7 @@
     { id: 'chat', label: 'Chat' },
     { id: 'evidence', label: 'Evidence' },
     { id: 'recorder', label: 'Recorder' },
+    { id: 'visual', label: 'Visual' },
     { id: 'patch', label: 'Patch' },
     { id: 'tests', label: 'Tests' },
     { id: 'trust', label: 'Trust' },
@@ -29,4 +30,3 @@
     isWorkbenchTab,
   };
 });
-

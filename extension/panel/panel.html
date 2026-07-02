@@ -83,6 +83,7 @@
     <button type="button" class="workbench-tab active" data-workbench-tab="chat" aria-selected="true">Chat</button>
     <button type="button" class="workbench-tab" data-workbench-tab="evidence" aria-selected="false">Evidence</button>
     <button type="button" class="workbench-tab" data-workbench-tab="recorder" aria-selected="false">Recorder</button>
+    <button type="button" class="workbench-tab" data-workbench-tab="visual" aria-selected="false">Visual</button>
     <button type="button" class="workbench-tab" data-workbench-tab="patch" aria-selected="false">Patch</button>
     <button type="button" class="workbench-tab" data-workbench-tab="tests" aria-selected="false">Tests</button>
     <button type="button" class="workbench-tab" data-workbench-tab="trust" aria-selected="false">Trust</button>
@@ -173,7 +174,103 @@
         </div>
       </div>
     </section>
-    <section class="workbench-panel" data-workbench-panel="patch" hidden></section>
+    <section class="workbench-panel visual-page" data-workbench-panel="visual" hidden>
+      <div id="visual-board">
+        <div class="visual-toolbar">
+          <label class="visual-selector-control">
+            <span>Selector</span>
+            <input id="visual-selector" type="text" autocomplete="off" placeholder="CSS selector">
+          </label>
+          <button id="visual-diagnose-btn" type="button">Diagnose selector</button>
+          <div class="visual-stat">
+            <span>Screenshot</span>
+            <strong id="visual-screenshot-status">unsupported</strong>
+          </div>
+        </div>
+        <div class="visual-summary">
+          <div class="visual-stat">
+            <span>Result</span>
+            <strong id="visual-result-summary">No diagnosis</strong>
+          </div>
+          <div class="visual-stat">
+            <span>Evidence</span>
+            <strong id="visual-evidence-status">Evidence: 0</strong>
+          </div>
+        </div>
+        <div class="visual-content">
+          <section class="visual-detail" aria-label="Selected element DOM summary">
+            <h2>DOM summary</h2>
+            <pre id="visual-dom-summary"></pre>
+          </section>
+          <section class="visual-detail" aria-label="Bounding client rect">
+            <h2>Bounding rect</h2>
+            <pre id="visual-rect"></pre>
+          </section>
+          <section class="visual-detail" aria-label="Computed style">
+            <h2>Computed style</h2>
+            <pre id="visual-computed-style"></pre>
+          </section>
+          <section class="visual-detail" aria-label="Clickability">
+            <h2>Clickability</h2>
+            <pre id="visual-clickability"></pre>
+          </section>
+          <section class="visual-detail" aria-label="Overflow clipping chain">
+            <h2>Overflow chain</h2>
+            <pre id="visual-overflow-chain"></pre>
+          </section>
+          <section class="visual-detail visual-payload-detail" aria-label="DOM diagnostic payload">
+            <h2>Payload</h2>
+            <pre id="visual-payload"></pre>
+          </section>
+        </div>
+      </div>
+    </section>
+    <section class="workbench-panel patch-page" data-workbench-panel="patch" hidden>
+      <div id="patch-board">
+        <div class="patch-toolbar">
+          <div class="patch-stat">
+            <span>Status</span>
+            <strong id="patch-status">draft</strong>
+          </div>
+          <div class="patch-actions">
+            <button id="patch-preview-btn" type="button">Preview</button>
+            <button id="patch-apply-btn" type="button">Apply</button>
+            <button id="patch-start-verify-btn" type="button">Start verify</button>
+            <button id="patch-mark-verified-btn" type="button">Mark verified</button>
+            <button id="patch-rollback-btn" type="button">Rollback</button>
+          </div>
+        </div>
+        <div class="patch-form">
+          <label>
+            <span>Hypothesis</span>
+            <input id="patch-hypothesis" type="text" autocomplete="off">
+          </label>
+          <label>
+            <span>File path</span>
+            <input id="patch-file-path" type="text" autocomplete="off">
+          </label>
+          <label class="patch-content-control">
+            <span>Proposed content</span>
+            <textarea id="patch-proposed-content" rows="10" spellcheck="false"></textarea>
+          </label>
+          <label class="patch-content-control">
+            <span>Verification</span>
+            <textarea id="patch-verification-note" rows="3" spellcheck="false"></textarea>
+          </label>
+        </div>
+        <div class="patch-content">
+          <section class="patch-detail" aria-label="Diff preview">
+            <h2>Diff</h2>
+            <pre id="patch-diff-preview"></pre>
+          </section>
+          <section class="patch-detail" aria-label="Patch session">
+            <h2>PatchSession</h2>
+            <pre id="patch-session-json"></pre>
+          </section>
+        </div>
+        <div id="patch-message" role="status"></div>
+      </div>
+    </section>
     <section class="workbench-panel tests-page" data-workbench-panel="tests" hidden>
       <div id="tests-board">
         <div class="tests-toolbar">

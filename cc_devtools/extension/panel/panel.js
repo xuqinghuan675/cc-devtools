@@ -32,6 +32,7 @@ let conversationTokenCount = 0;
 let recorderDrainTimer = null;
 let recorderInjected = false;
 let activeBugBundle = null;
+let activeVisualDiagnostic = null;
 
 const $ = (s) => document.querySelector(s);
 const messagesEl = $('#messages');
@@ -75,15 +76,40 @@ const recorderResumeBtn = $('#recorder-resume-btn');
 const recorderPackBtn = $('#recorder-pack-btn');
 const recorderCopyBtn = $('#recorder-copy-btn');
 const recorderClearBtn = $('#recorder-clear-btn');
+const visualSelectorEl = $('#visual-selector');
+const visualDiagnoseBtn = $('#visual-diagnose-btn');
+const visualScreenshotStatusEl = $('#visual-screenshot-status');
+const visualResultSummaryEl = $('#visual-result-summary');
+const visualDomSummaryEl = $('#visual-dom-summary');
+const visualRectEl = $('#visual-rect');
+const visualComputedStyleEl = $('#visual-computed-style');
+const visualClickabilityEl = $('#visual-clickability');
+const visualOverflowChainEl = $('#visual-overflow-chain');
+const visualPayloadEl = $('#visual-payload');
+const visualEvidenceStatusEl = $('#visual-evidence-status');
 const testsSourceSummaryEl = $('#tests-source-summary');
 const testsSelectorConfidenceEl = $('#tests-selector-confidence');
 const testsDraftPreviewEl = $('#tests-draft-preview');
 const testsGenerateBtn = $('#tests-generate-btn');
 const testsCopyBtn = $('#tests-copy-btn');
 const testsClearBtn = $('#tests-clear-btn');
+const patchStatusEl = $('#patch-status');
+const patchHypothesisEl = $('#patch-hypothesis');
+const patchFilePathEl = $('#patch-file-path');
+const patchProposedContentEl = $('#patch-proposed-content');
+const patchPreviewBtn = $('#patch-preview-btn');
+const patchApplyBtn = $('#patch-apply-btn');
+const patchStartVerifyBtn = $('#patch-start-verify-btn');
+const patchVerificationNoteEl = $('#patch-verification-note');
+const patchMarkVerifiedBtn = $('#patch-mark-verified-btn');
+const patchRollbackBtn = $('#patch-rollback-btn');
+const patchDiffPreviewEl = $('#patch-diff-preview');
+const patchMessageEl = $('#patch-message');
+const patchSessionJsonEl = $('#patch-session-json');
 let activeWorkbenchTab = 'chat';
 let activeEvidenceId = null;
 let activeGeneratedTestDraft = null;
+let activePatchSession = null;
 const evidenceStore = createEvidenceStore();
 const recorderStore = createRecorderStore();
 
@@ -327,7 +353,7 @@ function getWorkbenchTabIds() {
   if (PanelViews && typeof PanelViews.getWorkbenchTabs === 'function') {
     return PanelViews.getWorkbenchTabs().map((tab) => tab.id);
   }
-  return ['chat', 'evidence', 'recorder', 'patch', 'tests', 'trust', 'recipes'];
+  return ['chat', 'evidence', 'recorder', 'visual', 'patch', 'tests', 'trust', 'recipes'];
 }
 
 function setActiveState(element, active) {
@@ -358,6 +384,8 @@ function activateWorkbenchTab(tabId) {
 
   if (nextTab === 'evidence') renderEvidenceBoard();
   if (nextTab === 'recorder') renderRecorderBoard();
+  if (nextTab === 'visual') renderVisualBoard();
+  if (nextTab === 'patch') renderPatchBoard();
   if (nextTab === 'tests') renderTestsBoard();
 
   return activeWorkbenchTab;
@@ -1226,6 +1254,535 @@ async function copyGeneratedTestDraft() {
 function clearGeneratedTestDraft() {
   activeGeneratedTestDraft = null;
   renderTestsBoard();
+}
+
+function visualCoreReady() {
+  return PanelCore
+    && typeof PanelCore.createDomDiagnosticPayload === 'function'
+    && typeof PanelCore.createDomDiagnosticEvidence === 'function'
+    && typeof PanelCore.normalizeScreenshotStatus === 'function';
+}
+
+function visualSelectorValue() {
+  return visualSelectorEl ? String(visualSelectorEl.value || '').trim() : '';
+}
+
+function visualText(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  return JSON.stringify(value, null, 2);
+}
+
+function visualElementName(element = {}) {
+  const tag = element.tag ? String(element.tag).toLowerCase() : 'element';
+  const id = element.id ? `#${element.id}` : '';
+  const className = element.className ? `.${String(element.className).trim().split(/\s+/).filter(Boolean).join('.')}` : '';
+  return `${tag}${id}${className}`;
+}
+
+function formatVisualDomSummary(diagnostic = {}) {
+  if (!diagnostic || !Object.keys(diagnostic).length) return '';
+  const lines = [];
+  if (diagnostic.error) lines.push(`error: ${diagnostic.error}`);
+  if (diagnostic.domSummary) lines.push(String(diagnostic.domSummary));
+  if (diagnostic.element && Object.keys(diagnostic.element).length) {
+    lines.push(visualText(diagnostic.element));
+  }
+  return lines.join('\n');
+}
+
+function formatVisualClickability(diagnostic = {}) {
+  if (!diagnostic || !Object.keys(diagnostic).length) return '';
+  return [
+    `display: ${diagnostic.computedStyle && diagnostic.computedStyle.display ? diagnostic.computedStyle.display : ''}`,
+    `visibility: ${diagnostic.computedStyle && diagnostic.computedStyle.visibility ? diagnostic.computedStyle.visibility : ''}`,
+    `opacity: ${diagnostic.computedStyle && diagnostic.computedStyle.opacity ? diagnostic.computedStyle.opacity : ''}`,
+    `pointer-events: ${diagnostic.computedStyle && diagnostic.computedStyle.pointerEvents ? diagnostic.computedStyle.pointerEvents : ''}`,
+    `z-index: ${diagnostic.computedStyle && diagnostic.computedStyle.zIndex ? diagnostic.computedStyle.zIndex : ''}`,
+    `disabled: ${diagnostic.state ? Boolean(diagnostic.state.disabled) : false}`,
+    `aria-disabled: ${diagnostic.state ? Boolean(diagnostic.state.ariaDisabled) : false}`,
+    `center: ${visualText(diagnostic.clickableCenterPoint || {})}`,
+    `elementFromPoint(center): ${visualText(diagnostic.topElementAtCenter || {})}`,
+    `result: ${diagnostic.diagnosticResult || ''}`,
+  ].join('\n');
+}
+
+function quoteSingleJsString(value) {
+  return `'${String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')}'`;
+}
+
+function renderVisualBoard(diagnostic = activeVisualDiagnostic) {
+  const item = diagnostic || {};
+  if (visualResultSummaryEl) {
+    const result = item.diagnosticResult || 'No diagnosis';
+    const selector = item.selector ? ` (${item.selector})` : '';
+    visualResultSummaryEl.textContent = `${result}${selector}`;
+  }
+  if (visualScreenshotStatusEl) {
+    const status = visualCoreReady() ? PanelCore.normalizeScreenshotStatus(item.screenshotStatus) : (item.screenshotStatus || 'unsupported');
+    visualScreenshotStatusEl.textContent = status;
+  }
+  if (visualDomSummaryEl) visualDomSummaryEl.textContent = formatVisualDomSummary(item);
+  if (visualRectEl) visualRectEl.textContent = visualText(item.boundingClientRect || {});
+  if (visualComputedStyleEl) visualComputedStyleEl.textContent = visualText(item.computedStyle || {});
+  if (visualClickabilityEl) visualClickabilityEl.textContent = formatVisualClickability(item);
+  if (visualOverflowChainEl) visualOverflowChainEl.textContent = visualText(item.overflowClippingChain || []);
+  if (visualPayloadEl) visualPayloadEl.textContent = Object.keys(item).length ? visualText(item) : '';
+  if (visualEvidenceStatusEl) visualEvidenceStatusEl.textContent = `Evidence: ${getEvidenceItems().length}`;
+}
+
+function buildDomDiagnosticScript(selector) {
+  const selectorLiteral = quoteSingleJsString(selector);
+  return `(() => {
+    const selector = ${selectorLiteral};
+    const screenshotStatus = 'unsupported';
+    function rectObject(rect) {
+      if (!rect) return {};
+      return {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        left: rect.left
+      };
+    }
+    function elementSummary(element) {
+      if (!element) return {};
+      const attributes = {};
+      const allowed = new Set(['id', 'class', 'name', 'type', 'role', 'aria-label', 'aria-disabled', 'disabled', 'data-testid', 'href']);
+      for (const attr of Array.from(element.attributes || [])) {
+        if (allowed.has(attr.name)) attributes[attr.name] = attr.value;
+      }
+      return {
+        tag: String(element.tagName || '').toLowerCase(),
+        id: element.id || '',
+        className: typeof element.className === 'string' ? element.className : '',
+        text: String(element.innerText || element.textContent || '').trim().slice(0, 240),
+        attributes
+      };
+    }
+    function summaryText(element) {
+      const summary = elementSummary(element);
+      const classes = summary.className ? '.' + summary.className.trim().split(/\\s+/).filter(Boolean).join('.') : '';
+      const id = summary.id ? '#' + summary.id : '';
+      const text = summary.text ? ' ' + summary.text.slice(0, 80) : '';
+      return (summary.tag || 'element') + id + classes + text;
+    }
+    function styleSummary(style) {
+      return {
+        display: style.display,
+        visibility: style.visibility,
+        opacity: style.opacity,
+        pointerEvents: style.pointerEvents,
+        zIndex: style.zIndex,
+        position: style.position,
+        overflow: style.overflow,
+        overflowX: style.overflowX,
+        overflowY: style.overflowY,
+        clipPath: style.clipPath,
+        transform: style.transform
+      };
+    }
+    function overflowChain(element, center) {
+      const chain = [];
+      let parent = element ? element.parentElement : null;
+      while (parent) {
+        const style = window.getComputedStyle(parent);
+        const overflowText = [style.overflow, style.overflowX, style.overflowY].join(' ');
+        if (/hidden|clip|auto|scroll/i.test(overflowText)) {
+          const rect = parent.getBoundingClientRect();
+          const clipsCenter = Boolean(center && (
+            center.x < rect.left ||
+            center.x > rect.right ||
+            center.y < rect.top ||
+            center.y > rect.bottom
+          ));
+          chain.push({
+            element: summaryText(parent),
+            overflow: style.overflow,
+            overflowX: style.overflowX,
+            overflowY: style.overflowY,
+            rect: rectObject(rect),
+            clipsCenter
+          });
+        }
+        parent = parent.parentElement;
+      }
+      return chain;
+    }
+    try {
+      const element = document.querySelector(selector);
+      if (!element) {
+        return { selector, error: 'Element not found', screenshotStatus };
+      }
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      const center = {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+        inViewport: rect.width > 0 && rect.height > 0 &&
+          rect.left + rect.width / 2 >= 0 &&
+          rect.left + rect.width / 2 <= window.innerWidth &&
+          rect.top + rect.height / 2 >= 0 &&
+          rect.top + rect.height / 2 <= window.innerHeight
+      };
+      const topElement = center.inViewport ? document.elementFromPoint(center.x, center.y) : null;
+      return {
+        selector,
+        element: elementSummary(element),
+        domSummary: summaryText(element),
+        boundingClientRect: rectObject(rect),
+        computedStyle: styleSummary(style),
+        state: {
+          disabled: Boolean(element.disabled),
+          ariaDisabled: element.getAttribute('aria-disabled') === 'true'
+        },
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+          scrollX: window.scrollX,
+          scrollY: window.scrollY,
+          devicePixelRatio: window.devicePixelRatio
+        },
+        overflowClippingChain: overflowChain(element, center),
+        clickableCenterPoint: center,
+        topElementAtCenter: topElement ? {
+          tag: String(topElement.tagName || '').toLowerCase(),
+          id: topElement.id || '',
+          className: typeof topElement.className === 'string' ? topElement.className : '',
+          matchesTarget: topElement === element,
+          containsTarget: element.contains(topElement)
+        } : {},
+        screenshotStatus
+      };
+    } catch (error) {
+      return {
+        selector,
+        error: error && error.message ? error.message : String(error),
+        screenshotStatus: 'failed'
+      };
+    }
+  })()`;
+}
+
+async function diagnoseVisualSelector(event) {
+  if (event && typeof event.preventDefault === 'function') event.preventDefault();
+  const selector = visualSelectorValue();
+  if (!selector) {
+    activeVisualDiagnostic = {
+      schemaVersion: 1,
+      selector: '',
+      diagnosticResult: 'visible',
+      screenshotStatus: 'unsupported',
+      error: 'Selector is required',
+    };
+    renderVisualBoard(activeVisualDiagnostic);
+    return activeVisualDiagnostic;
+  }
+
+  if (visualDiagnoseBtn) visualDiagnoseBtn.disabled = true;
+  try {
+    const raw = await executeInspectedWindowEval(buildDomDiagnosticScript(selector));
+    const input = raw && typeof raw === 'object'
+      ? { ...raw, selector: raw.selector || selector }
+      : { selector, error: String(raw || 'No diagnostic result'), screenshotStatus: 'failed' };
+    const payload = visualCoreReady()
+      ? PanelCore.createDomDiagnosticPayload(input)
+      : { ...input, schemaVersion: 1, screenshotStatus: input.screenshotStatus || 'unsupported' };
+    const evidenceInput = visualCoreReady()
+      ? PanelCore.createDomDiagnosticEvidence(payload)
+      : {
+        type: 'dom',
+        severity: 'info',
+        source: 'visual-dom',
+        title: `DOM diagnostic: ${visualElementName(payload.element || {})}`,
+        summary: payload.diagnosticResult || '',
+        payload,
+        selected: false,
+        tags: ['visual', 'dom', 'diagnostic'],
+      };
+    const evidence = addEvidenceItem(evidenceInput);
+    activeVisualDiagnostic = evidence && evidence.payload ? evidence.payload : payload;
+    renderVisualBoard(activeVisualDiagnostic);
+    if (visualEvidenceStatusEl && evidence) visualEvidenceStatusEl.textContent = `Evidence: ${getEvidenceItems().length} (${evidence.id})`;
+    return activeVisualDiagnostic;
+  } finally {
+    if (visualDiagnoseBtn) visualDiagnoseBtn.disabled = false;
+  }
+}
+
+function initVisualBoard() {
+  if (visualDiagnoseBtn) visualDiagnoseBtn.addEventListener('click', diagnoseVisualSelector);
+  if (visualSelectorEl) {
+    visualSelectorEl.addEventListener('keydown', (event) => {
+      if (event && event.key === 'Enter') diagnoseVisualSelector(event);
+    });
+  }
+  renderVisualBoard();
+}
+
+function patchCoreReady() {
+  return PanelCore
+    && typeof PanelCore.createPatchSession === 'function'
+    && typeof PanelCore.transitionPatchSession === 'function'
+    && typeof PanelCore.buildPatchDiff === 'function'
+    && typeof PanelCore.createPatchBackup === 'function'
+    && typeof PanelCore.previewPatchSession === 'function';
+}
+
+function selectedPatchEvidenceIds() {
+  return getSelectedEvidenceItems().map((item) => item.id);
+}
+
+function patchFilePath() {
+  return patchFilePathEl ? String(patchFilePathEl.value || '').trim() : '';
+}
+
+function patchProposedContent() {
+  return patchProposedContentEl ? String(patchProposedContentEl.value || '') : '';
+}
+
+function patchHypothesis() {
+  return patchHypothesisEl ? String(patchHypothesisEl.value || '').trim() : '';
+}
+
+function createPatchSessionFromForm() {
+  if (!patchCoreReady()) return null;
+  const path = patchFilePath();
+  return PanelCore.createPatchSession({
+    hypothesis: patchHypothesis(),
+    files: path ? [{ path, proposedContent: patchProposedContent() }] : [],
+    evidenceIds: selectedPatchEvidenceIds(),
+  });
+}
+
+function activePatchFile() {
+  if (!activePatchSession || !Array.isArray(activePatchSession.files)) return null;
+  return activePatchSession.files[0] || null;
+}
+
+function setPatchMessage(message) {
+  if (patchMessageEl) patchMessageEl.textContent = String(message || '');
+}
+
+function patchVerificationInput() {
+  return patchVerificationNoteEl ? String(patchVerificationNoteEl.value || '').trim() : '';
+}
+
+function patchVerification(status, summary) {
+  return {
+    status,
+    summary: String(summary || ''),
+    evidenceIds: selectedPatchEvidenceIds(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function renderPatchBoard() {
+  if (!patchStatusEl || !patchCoreReady()) return;
+  if (!activePatchSession) activePatchSession = PanelCore.createPatchSession();
+  const status = activePatchSession.status || 'draft';
+  patchStatusEl.textContent = status;
+  if (patchDiffPreviewEl) patchDiffPreviewEl.textContent = activePatchSession.diff || '';
+  if (patchSessionJsonEl) patchSessionJsonEl.textContent = JSON.stringify(activePatchSession, null, 2);
+  if (patchApplyBtn) patchApplyBtn.disabled = status !== 'preview';
+  if (patchStartVerifyBtn) patchStartVerifyBtn.disabled = status !== 'applied';
+  if (patchMarkVerifiedBtn) patchMarkVerifiedBtn.disabled = status !== 'verifying';
+  if (patchRollbackBtn) patchRollbackBtn.disabled = status !== 'failed';
+}
+
+function fileActionFailed(result) {
+  const text = String(result || '');
+  return /^(File action failed|File action timed out|文件动作失败|文件动作超时)/i.test(text);
+}
+
+function fileReadLooksTruncated(result) {
+  return /\[truncated at \d+ of \d+ chars\]/.test(String(result || ''));
+}
+
+function saveSucceeded(result) {
+  return /^File saved:\s+/.test(String(result || ''));
+}
+
+function patchWriteAllowed() {
+  return typeof actionPolicy !== 'function' || actionPolicy('save') !== 'block';
+}
+
+function failActivePatchSession(message) {
+  if (!activePatchSession || !patchCoreReady()) return;
+  activePatchSession = PanelCore.transitionPatchSession(activePatchSession, 'failed', {
+    evidenceIds: selectedPatchEvidenceIds(),
+    verification: patchVerification('failed', message),
+  });
+  setPatchMessage(`failed: ${message}`);
+  renderPatchBoard();
+}
+
+async function previewPatchTransaction() {
+  if (!patchCoreReady()) return null;
+  const draft = createPatchSessionFromForm();
+  activePatchSession = draft;
+  const file = activePatchFile();
+  if (!file || !file.path) {
+    setPatchMessage('File path is required.');
+    renderPatchBoard();
+    return activePatchSession;
+  }
+
+  const originalContent = await executeFileAction('file_read', { path: file.path, offset: 0, limit: 100000 });
+  if (fileActionFailed(originalContent)) {
+    setPatchMessage(`preview failed: ${originalContent}`);
+    renderPatchBoard();
+    return activePatchSession;
+  }
+  if (fileReadLooksTruncated(originalContent)) {
+    setPatchMessage('preview failed: original file read was truncated, backup is incomplete.');
+    renderPatchBoard();
+    return activePatchSession;
+  }
+
+  const backup = PanelCore.createPatchBackup(file.path, originalContent);
+  activePatchSession = PanelCore.previewPatchSession(draft, {
+    backups: { [file.path]: backup },
+    diff: PanelCore.buildPatchDiff(file.path, originalContent, file.proposedContent),
+  });
+  setPatchMessage('preview ready');
+  renderPatchBoard();
+  return activePatchSession;
+}
+
+async function applyPatchTransaction() {
+  if (!activePatchSession || activePatchSession.status !== 'preview') {
+    setPatchMessage('Apply requires preview status.');
+    renderPatchBoard();
+    return activePatchSession;
+  }
+  if (!patchWriteAllowed()) {
+    failActivePatchSession('write permission is blocked by the current mode');
+    return activePatchSession;
+  }
+  const file = activePatchFile();
+  if (!file || !file.path) {
+    failActivePatchSession('file path is missing');
+    return activePatchSession;
+  }
+
+  const originalContent = await executeFileAction('file_read', { path: file.path, offset: 0, limit: 100000 });
+  if (fileActionFailed(originalContent)) {
+    failActivePatchSession(`backup read failed before apply: ${originalContent}`);
+    return activePatchSession;
+  }
+  if (fileReadLooksTruncated(originalContent)) {
+    failActivePatchSession('backup read failed before apply: original file read was truncated');
+    return activePatchSession;
+  }
+  const backup = PanelCore.createPatchBackup(file.path, originalContent);
+  activePatchSession = PanelCore.createPatchSession({
+    ...activePatchSession,
+    backups: { ...activePatchSession.backups, [file.path]: backup },
+    diff: PanelCore.buildPatchDiff(file.path, originalContent, file.proposedContent),
+    updatedAt: new Date().toISOString(),
+  });
+
+  const result = await executeSaveFile(file.path, file.proposedContent);
+  if (!saveSucceeded(result)) {
+    failActivePatchSession(result || 'write failed');
+    return activePatchSession;
+  }
+
+  activePatchSession = PanelCore.transitionPatchSession(activePatchSession, 'applied');
+  setPatchMessage(result);
+  renderPatchBoard();
+  return activePatchSession;
+}
+
+function startPatchVerification() {
+  if (!activePatchSession || activePatchSession.status !== 'applied') {
+    setPatchMessage('Verification requires applied status.');
+    renderPatchBoard();
+    return activePatchSession;
+  }
+  activePatchSession = PanelCore.transitionPatchSession(activePatchSession, 'verifying', {
+    evidenceIds: selectedPatchEvidenceIds(),
+    verification: patchVerification('verifying', patchVerificationInput()),
+  });
+  setPatchMessage('verifying');
+  renderPatchBoard();
+  return activePatchSession;
+}
+
+function markPatchVerified() {
+  if (!activePatchSession || activePatchSession.status !== 'verifying') {
+    setPatchMessage('Mark verified requires verifying status.');
+    renderPatchBoard();
+    return activePatchSession;
+  }
+  activePatchSession = PanelCore.transitionPatchSession(activePatchSession, 'verified', {
+    evidenceIds: selectedPatchEvidenceIds(),
+    verification: patchVerification('verified', patchVerificationInput()),
+  });
+  setPatchMessage('verified');
+  renderPatchBoard();
+  return activePatchSession;
+}
+
+async function rollbackPatchTransaction() {
+  if (!activePatchSession || activePatchSession.status !== 'failed') {
+    setPatchMessage('Rollback requires failed status.');
+    renderPatchBoard();
+    return activePatchSession;
+  }
+  const file = activePatchFile();
+  const backup = file && activePatchSession.backups ? activePatchSession.backups[file.path] : null;
+  if (!file || !backup) {
+    activePatchSession = PanelCore.transitionPatchSession(activePatchSession, 'rollback_failed', {
+      verification: patchVerification('rollback_failed', 'backup unavailable'),
+    });
+    setPatchMessage('rollback_failed: backup unavailable');
+    renderPatchBoard();
+    return activePatchSession;
+  }
+  if (!patchWriteAllowed()) {
+    activePatchSession = PanelCore.transitionPatchSession(activePatchSession, 'rollback_failed', {
+      verification: patchVerification('rollback_failed', 'write permission is blocked by the current mode'),
+    });
+    setPatchMessage('rollback_failed: write permission is blocked by the current mode');
+    renderPatchBoard();
+    return activePatchSession;
+  }
+
+  const result = await executeSaveFile(file.path, backup.content);
+  if (saveSucceeded(result)) {
+    activePatchSession = PanelCore.transitionPatchSession(activePatchSession, 'rolled_back', {
+      verification: patchVerification('rolled_back', result),
+    });
+    setPatchMessage('rolled_back');
+  } else {
+    activePatchSession = PanelCore.transitionPatchSession(activePatchSession, 'rollback_failed', {
+      verification: patchVerification('rollback_failed', result || 'rollback write failed'),
+    });
+    setPatchMessage(`rollback_failed: ${result || 'rollback write failed'}`);
+  }
+  renderPatchBoard();
+  return activePatchSession;
+}
+
+function initPatchBoard() {
+  if (patchPreviewBtn) patchPreviewBtn.addEventListener('click', previewPatchTransaction);
+  if (patchApplyBtn) patchApplyBtn.addEventListener('click', applyPatchTransaction);
+  if (patchStartVerifyBtn) patchStartVerifyBtn.addEventListener('click', startPatchVerification);
+  if (patchMarkVerifiedBtn) patchMarkVerifiedBtn.addEventListener('click', markPatchVerified);
+  if (patchRollbackBtn) patchRollbackBtn.addEventListener('click', rollbackPatchTransaction);
+  renderPatchBoard();
 }
 
 function initTestsBoard() {
@@ -3219,6 +3776,8 @@ function escapeHtml(str) {
 initWorkbenchTabs();
 initEvidenceBoard();
 initRecorderBoard();
+initVisualBoard();
+initPatchBoard();
 initTestsBoard();
 initBridgeTokenControl();
 initActionRoundControl();

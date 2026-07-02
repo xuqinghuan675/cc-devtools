@@ -48,7 +48,7 @@ function loadPanelWorkbenchContext() {
   const panelSource = readFileSync('cc_devtools/extension/panel/panel.js', 'utf8');
   const definitionsOnly = panelSource.split('\ninitBridgeTokenControl();')[0];
   const elements = new Map();
-  const tabNames = ['chat', 'evidence', 'recorder', 'patch', 'tests', 'trust', 'recipes'];
+  const tabNames = ['chat', 'evidence', 'recorder', 'visual', 'patch', 'tests', 'trust', 'recipes'];
   const tabButtons = tabNames.map((name) => {
     const el = createElementStub();
     el.dataset.tab = name;
@@ -113,7 +113,7 @@ function loadPanelWorkbenchContext() {
 test('panel exposes Workbench tabs while keeping Chat as the default page', () => {
   const html = readFileSync('cc_devtools/extension/panel/panel.html', 'utf8');
 
-  for (const tab of ['chat', 'evidence', 'recorder', 'patch', 'tests', 'trust', 'recipes']) {
+  for (const tab of ['chat', 'evidence', 'recorder', 'visual', 'patch', 'tests', 'trust', 'recipes']) {
     assert.match(html, new RegExp(`data-workbench-tab="${tab}"`));
     assert.match(html, new RegExp(`data-workbench-panel="${tab}"`));
   }
@@ -135,4 +135,3 @@ test('switching Workbench tabs does not remove Chat messages', () => {
   assert.equal(messagesEl.children[0].textContent, 'Keep this conversation');
   assert.equal(tabPanels.find((panel) => panel.dataset.tabPanel === 'chat').hidden, false);
 });
-
