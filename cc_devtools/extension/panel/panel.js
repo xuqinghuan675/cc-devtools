@@ -747,6 +747,13 @@ function buildSendPreview(input = {}) {
   };
 }
 
+function defaultSendRequiresConfirmation(msg = {}) {
+  if (msg.requireSendPreview !== undefined) return Boolean(msg.requireSendPreview);
+  if (Array.isArray(msg.selectedEvidence) && msg.selectedEvidence.length > 0) return true;
+  if (msg.bugBundle || msg.testDraft || msg.patchSession || msg.patchContent || msg.fileContent) return true;
+  return getSelectedTrustMode() === 'observe';
+}
+
 function formatSendPreview(preview) {
   if (PanelCore && typeof PanelCore.formatSendPreviewSummary === 'function') {
     return PanelCore.formatSendPreviewSummary(preview);
@@ -768,6 +775,18 @@ function confirmSendPreview(preview) {
   if (typeof confirm === 'function') return confirm(message);
   if (typeof window !== 'undefined' && typeof window.confirm === 'function') return window.confirm(message);
   return false;
+}
+
+function handleSendPreview(preview, msg = {}) {
+  if (msg.sendPreviewConfirmed) {
+    renderTrustSendPreview(preview);
+    return true;
+  }
+  if (preview && preview.requireConfirmation === false && !preview.blockedReason) {
+    renderTrustSendPreview(preview);
+    return true;
+  }
+  return confirmSendPreview(preview);
 }
 
 function confirmEvidenceSend(summaryText) {
@@ -1258,8 +1277,33 @@ function buildBugFlightRecorderScript() {
         push({ type: 'click', selector: selectorFor(event.target), summary: 'Click ' + selectorFor(event.target) });
       }
 
+      function isAllowedInputKey(event) {
+        var key = event.key || '';
+        if (event.ctrlKey || event.metaKey || event.altKey) return true;
+        return key === 'Enter'
+          || key === 'Escape'
+          || key === 'Tab'
+          || key === 'ArrowUp'
+          || key === 'ArrowDown'
+          || key === 'ArrowLeft'
+          || key === 'ArrowRight';
+      }
+
+      function formatKey(event) {
+        var key = clean(event.key || '', 80);
+        var parts = [];
+        if (event.ctrlKey) parts.push('Ctrl');
+        if (event.metaKey) parts.push('Meta');
+        if (event.altKey) parts.push('Alt');
+        if (event.shiftKey && key.length > 1) parts.push('Shift');
+        parts.push(key || 'Unknown');
+        return parts.join('+');
+      }
+
       function onKey(event) {
-        push({ type: 'press', key: clean(event.key || '', 80), summary: 'Press ' + clean(event.key || '', 80) });
+        if (isInputLike(event.target) && !isAllowedInputKey(event)) return;
+        var key = formatKey(event);
+        push({ type: 'press', key: key, summary: 'Press ' + key });
       }
 
       function onInput(event) {
@@ -2303,6 +2347,36 @@ function evidenceTypeForAction(type) {
   return 'action';
 }
 
+function summarizeActionInputValue(value, selector) {
+  if (PanelCore && typeof PanelCore.summarizeInputValue === 'function') {
+    return PanelCore.summarizeInputValue(value, selector);
+  }
+  const text = String(value || '');
+  return {
+    length: text.length,
+    empty: text.length === 0,
+    redacted: /password|passwd|token|secret|key|session|cookie|email/i.test(selector || ''),
+  };
+}
+
+function safeActionPayload(action, resultText) {
+  const actionType = action && action.type ? action.type : 'unknown';
+  if (actionType === 'input') {
+    const parsed = parseInputActionCode(action.code);
+    return {
+      actionType,
+      selector: parsed.selector,
+      valueSummary: summarizeActionInputValue(parsed.value, parsed.selector),
+      result: resultText,
+    };
+  }
+  return {
+    actionType,
+    code: action ? action.code : '',
+    result: resultText,
+  };
+}
+
 function recordActionEvidenceItem(action, resultText) {
   if (!action) return null;
   return addEvidenceItem({
@@ -2311,11 +2385,7 @@ function recordActionEvidenceItem(action, resultText) {
     source: `action:${action.type}`,
     title: `[ACTION:${action.type}]`,
     summary: String(resultText || '').split('\n').slice(0, 3).join('\n'),
-    payload: {
-      actionType: action.type,
-      code: action.code,
-      result: resultText,
-    },
+    payload: safeActionPayload(action, resultText),
     selected: false,
     tags: ['action'],
   });
@@ -2515,10 +2585,12 @@ async function send(msg) {
       pageContext: { included: true },
       bugBundle: msg.bugBundle || null,
       testDraft: msg.testDraft || null,
+      patchSession: msg.patchSession || null,
+      patchContent: msg.patchContent || null,
+      fileContent: msg.fileContent || null,
+      requireConfirmation: defaultSendRequiresConfirmation(msg),
     });
-    if (msg.sendPreviewConfirmed) {
-      renderTrustSendPreview(sendPreview);
-    } else if (!confirmSendPreview(sendPreview)) {
+    if (!handleSendPreview(sendPreview, msg)) {
       addSystemMessage('Send cancelled.');
       return;
     }
@@ -4147,6 +4219,26 @@ function shouldRecordActionInRecorder(type) {
   return ['click', 'input', 'press', 'console', 'network'].includes(type);
 }
 
+function formatActionResultKey(action) {
+  if (!action) return '[action]';
+  if (action.type === 'input') {
+    const parsed = parseInputActionCode(action.code);
+    return `[${action.type}] ${parsed.selector}`.trim();
+  }
+  return `[${action.type}] ${String(action.code || '').substring(0, 50)}`;
+}
+
+function actionBlockedMessage(type) {
+  const mode = getSelectedTrustMode();
+  const label = trustModeLabel(mode);
+  if (type === 'save' && mode !== 'patch' && mode !== 'auto' && mode !== 'bypassPermissions') {
+    return `File write blocked by ${label}. Switch Trust Mode to Patch Sandbox to continue this patch workflow.`;
+  }
+  if (mode === 'plan') return t('actionBlockedPlan');
+  if (mode === 'observe') return `Action blocked by ${label}. Switch Trust Mode to Debug Safe or Patch Sandbox to run it.`;
+  return `Action blocked by ${label}.`;
+}
+
 function recordActionRecorderEvents(action, resultText, beforeEvidence, afterEvidence, beforeStorage, afterStorage, evidenceItem) {
   if (!action || !isRecorderRecording()) return;
   const evidenceId = evidenceItem && evidenceItem.id ? evidenceItem.id : '';
@@ -4215,7 +4307,7 @@ async function executeActions(actions) {
     let beforeStorage = null;
     let afterStorage = null;
     if (policy === 'block') {
-      result = t('actionBlockedPlan');
+      result = actionBlockedMessage(a.type);
     } else if (policy === 'confirm' && !confirmAction(a.type, a.code)) {
       result = t('actionDeclined');
     } else {
@@ -4235,7 +4327,7 @@ async function executeActions(actions) {
     const evidenceItem = recordActionEvidenceItem(a, short);
     recordActionRecorderEvents(a, short, beforeEvidence, afterEvidence, beforeStorage, afterStorage, evidenceItem);
 
-    const key = `[${a.type}] ${a.code.substring(0, 50)}`;
+    const key = formatActionResultKey(a);
     actionResults[key] = short;
 
     const el = document.getElementById(a.placeholder);

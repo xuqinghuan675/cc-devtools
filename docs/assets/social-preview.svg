@@ -31,5 +31,5 @@
   <text x="982" y="414" class="label">Trust</text>
   <text x="982" y="448" class="small">mode matrix</text>
   <rect x="112" y="504" width="1036" height="40" rx="8" fill="#13241b" stroke="#2f6544" stroke-width="2"/>
-  <text x="136" y="531" class="mono">Initial Workbench complete: observe -> reproduce -> test -> patch -> verify</text>
+  <text x="136" y="531" class="mono">Workbench ready: observe -> reproduce -> test -> patch -> verify</text>
 </svg>

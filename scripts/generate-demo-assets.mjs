@@ -97,7 +97,7 @@ function socialPreviewSvg() {
   <text x="982" y="414" class="label">Trust</text>
   <text x="982" y="448" class="small">mode matrix</text>
   <rect x="112" y="504" width="1036" height="40" rx="8" fill="#13241b" stroke="#2f6544" stroke-width="2"/>
-  <text x="136" y="531" class="mono">Initial Workbench complete: observe -> reproduce -> test -> patch -> verify</text>
+  <text x="136" y="531" class="mono">Workbench ready: observe -> reproduce -> test -> patch -> verify</text>
 </svg>
 `;
 }
@@ -106,14 +106,14 @@ const screenshotAssets = [
   {
     file: 'screenshot-workbench-overview.svg',
     title: 'Workbench overview',
-    eyebrow: 'Plan 0-7 initial Workbench',
+    eyebrow: 'Implemented Workbench pages',
     rows: [
       'Tabs: Chat, Evidence, Recorder, Visual',
       'Patch and Tests turn bugs into fixes and drafts',
       'Trust shows mode matrix and send preview',
       'Recipes keeps manual workflows and project memory',
     ],
-    footer: 'Initial Workbench complete: evidence -> reproduce -> test -> patch -> trust',
+    footer: 'Workbench ready: evidence -> reproduce -> test -> patch -> trust',
     accent: '#58c7b1',
   },
   {

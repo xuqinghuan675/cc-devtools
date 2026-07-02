@@ -2,7 +2,13 @@
 
 ## Unreleased
 
-- Mark the first Workbench milestone as preliminarily complete across documentation
+- Position the Workbench as an implemented, mature local-first frontend debugging workflow across documentation
+- Keep ordinary Chat sends interruption-free while still updating the Trust Send Preview
+- Require preview confirmation for selected evidence, BugBundles, test drafts, patch/file content, and Observe Only page-context sends
+- Redact input action evidence so raw input values are not stored in Evidence payloads or action-result keys
+- Skip ordinary character keydown events from input-like fields in Bug Flight Recorder
+- Clarify Debug Safe file-write blocking with Patch Sandbox guidance
+- Run the full Node test suite in CI with `node --test tests/*.test.mjs`
 - Add Workbench tabs: Chat, Evidence, Recorder, Visual, Patch, Tests, Trust, and Recipes
 - Add Safety Kernel helpers, TrustPolicy, Trust Mode permission matrix, and shared Send Preview
 - Add Evidence Board with structured EvidenceItem records, filtering, selection, copy, and redacted send summary

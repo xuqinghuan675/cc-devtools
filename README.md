@@ -25,18 +25,18 @@ It complements MCP and Playwright MCP workflows: MCP is a strong tool backend, w
 
 ## Current Status
 
-The first Workbench milestone is preliminarily complete. Plan 0-7 are implemented and covered by automated tests:
+The Workbench is implemented and covered by automated tests. It includes the full local frontend debugging loop:
 
-- Plan 0: Workbench shell, panel sync guard, core data models, redaction helpers, and Safety Kernel.
-- Plan 1: Evidence Board with selection, filtering, copy, and redacted send preview.
-- Plan 2: Bug Flight Recorder with ring-buffered events and BugBundle generation.
-- Plan 3: Playwright Test Generator for copy-only test drafts.
-- Plan 4: Patch Transaction with preview, backup, apply, verify, and rollback states.
-- Plan 5: Visual and DOM diagnostics without requiring screenshot permissions.
-- Plan 6: Trust Mode page and shared Send Preview.
-- Plan 7: Recipes and Project Memory with manual import/export.
+- Workbench shell, panel sync guard, core data models, redaction helpers, and Safety Kernel.
+- Evidence Board with selection, filtering, copy, and redacted send preview.
+- Bug Flight Recorder with ring-buffered events and BugBundle generation.
+- Playwright Test Generator for copy-only test drafts.
+- Patch Transaction with preview, backup, apply, verify, and rollback states.
+- Visual and DOM diagnostics without requiring screenshot permissions.
+- Trust Mode page and shared Send Preview.
+- Recipes and Project Memory with manual import/export.
 
-This is still an early alpha. Real Chrome DevTools panel smoke testing is recommended after loading the extension, especially before using file writes on an important project.
+cc-devtools is a mature local-first developer Workbench. Run a normal extension smoke test after updating the extension, and keep file writes gated to trusted project roots.
 
 ## Why This Instead of Another Browser Tool
 
@@ -164,7 +164,7 @@ The Trust page controls panel-side action behavior:
 
 The permission-mode dropdown does not enable local file writes. `[ACTION:save]` / `write_file` still require `CC_DEVTOOLS_ENABLE_WRITE=1` in both bridge implementations.
 
-All normal sends can show a Send Preview with counts for evidence, console, network, file content, page context, action results, estimated tokens, and redaction status. Action-result loop messages do not prompt, so automated verification can continue.
+Ordinary Chat sends update the latest Send Preview in the Trust page without interrupting the chat flow. Selected evidence, BugBundles, test drafts, patch/file content, and Observe Only sends with page context require preview confirmation. Action-result loop messages do not prompt, so automated verification can continue.
 
 ## Actions
 
@@ -247,9 +247,9 @@ Read the full policy in [SECURITY.md](SECURITY.md).
 
 ## Project Status
 
-cc-devtools is early-stage alpha. The Python bridge is the primary path; the Node bridge is kept as an alternative for users who prefer Node.js.
+cc-devtools is a mature local-first Workbench for frontend debugging with CLI agents. The Python bridge is the primary path; the Node bridge is kept as an alternative for users who prefer Node.js.
 
-Initial Workbench functionality is preliminarily complete and test-covered. The next hardening work is real DevTools panel smoke testing, richer screenshot capture support, iframe/shadow DOM diagnostics, and polish for a custom Send Preview modal.
+The Workbench is implemented and test-covered. Ongoing work focuses on richer screenshot capture support, iframe/shadow DOM diagnostics, and deeper manual smoke-test coverage across real Chrome DevTools sessions.
 
 Good first issues:
 

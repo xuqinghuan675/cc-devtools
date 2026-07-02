@@ -4,7 +4,7 @@ cc-devtools gives a CLI AI tool controlled access to browser DevTools actions. T
 
 ## Supported Versions
 
-The project is in early alpha. Security fixes target the latest `main` branch until versioned releases begin.
+Security fixes target the latest `main` branch and any tagged releases that are still advertised as supported.
 
 ## What Data Is Sent to the CLI AI
 
@@ -64,7 +64,7 @@ The Workbench Trust page also controls panel-side action behavior:
 
 Panel action execution is intentionally a soft guardrail. Bypass and Patch Sandbox still respect bridge write-root checks, sensitive-file rejection, token checks, and `CC_DEVTOOLS_ENABLE_WRITE`.
 
-Normal user sends can show a Send Preview with evidence counts, file-content counts, estimated tokens, page-context inclusion, and redaction status. Automatic action-result loop messages do not prompt, so verification loops can complete.
+Ordinary Chat sends update the latest Send Preview in the Trust page without interrupting the chat flow. Selected evidence, BugBundles, test drafts, patch/file content, and Observe Only sends with page context require preview confirmation. Automatic action-result loop messages do not prompt, so verification loops can complete.
 
 ## Prompt-Injection Boundary
 

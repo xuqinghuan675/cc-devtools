@@ -202,3 +202,61 @@ test('Recorder pause, resume, clear, pack, and copy never auto-send to the agent
   assert.equal(elements.get('#recorder-event-count').textContent, '0 events');
   assert.equal(elements.get('#recorder-bundle-preview').textContent, '');
 });
+
+test('Bug Flight Recorder skips ordinary character keys in input-like fields', () => {
+  const { context } = loadRecorderContext();
+  const script = context.buildBugFlightRecorderScript();
+  const listeners = new Map();
+  const windowStub = {
+    CSS: { escape: (value) => String(value) },
+    addEventListener(type, handler) {
+      listeners.set(`window:${type}`, handler);
+    },
+  };
+  const documentStub = {
+    title: 'Login',
+    addEventListener(type, handler) {
+      listeners.set(`document:${type}`, handler);
+    },
+    querySelector() {
+      return null;
+    },
+  };
+  const pageContext = {
+    CSS: windowStub.CSS,
+    window: windowStub,
+    document: documentStub,
+    location: { href: 'https://app.test/login' },
+    history: {
+      pushState() {},
+      replaceState() {},
+    },
+    setInterval() {
+      return 1;
+    },
+    setTimeout(handler) {
+      handler();
+      return 1;
+    },
+    clearTimeout() {},
+  };
+  vm.createContext(pageContext);
+  vm.runInContext(script, pageContext);
+
+  const input = {
+    nodeType: 1,
+    tagName: 'INPUT',
+    id: 'password',
+    value: 'abc123',
+    getAttribute(name) {
+      if (name === 'type') return 'password';
+      return '';
+    },
+  };
+  listeners.get('document:keydown')({ target: input, key: 'a' });
+  listeners.get('document:keydown')({ target: input, key: 'Enter' });
+
+  const events = windowStub.__cc_bugFlightRecorder.drain();
+  assert.equal(events.some((event) => event.key === 'a'), false);
+  assert.ok(events.some((event) => event.type === 'press' && event.key === 'Enter'));
+});

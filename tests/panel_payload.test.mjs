@@ -37,6 +37,9 @@ function loadPanelContext(options = {}) {
   const bridgeTokenEl = { ...emptyEl, value: '' };
   const saveTokenBtn = { ...emptyEl };
   const tokenUsageEl = { ...emptyEl };
+  const trustModeEl = { ...emptyEl, value: options.trustMode || 'debug' };
+  const trustSendPreviewEl = { ...emptyEl };
+  const confirms = [];
   const context = {
     __sentMessages: sentMessages,
     __workflowEl: workflowEl,
@@ -45,7 +48,15 @@ function loadPanelContext(options = {}) {
     __bridgeTokenEl: bridgeTokenEl,
     __storage: storage,
     __tokenUsageEl: tokenUsageEl,
+    __trustModeEl: trustModeEl,
+    __trustSendPreviewEl: trustSendPreviewEl,
+    __confirms: confirms,
     clearTimeout() {},
+    confirm: (message) => {
+      confirms.push(message);
+      if (options.confirmThrows) throw new Error('confirm should not be called');
+      return options.confirmResult !== false;
+    },
     console,
     document: {
       createElement: () => ({ ...emptyEl }),
@@ -57,6 +68,8 @@ function loadPanelContext(options = {}) {
         if (selector === '#bridge-token') return bridgeTokenEl;
         if (selector === '#save-token-btn') return saveTokenBtn;
         if (selector === '#token-usage') return tokenUsageEl;
+        if (selector === '#trust-mode-select') return trustModeEl;
+        if (selector === '#trust-send-preview') return trustSendPreviewEl;
         return { ...emptyEl };
       },
     },
@@ -333,6 +346,18 @@ test('network detail includes headers, post data, timings and response preview',
   assert.match(result, /Initiator/);
   assert.ok(!result.includes('secret-value'));
   assert.ok(!result.includes('abc123'));
+});
+
+test('ordinary Chat send updates latest preview without forcing confirmation in Debug Safe', async () => {
+  const context = loadPanelContext({ trustMode: 'debug', confirmThrows: true });
+  context.__workflowEl.value = 'inspect';
+
+  await context.send({ content: 'What is on this page?' });
+
+  assert.equal(context.__sentMessages.length, 1);
+  assert.equal(context.__sentMessages[0].type, 'chat');
+  assert.equal(context.__confirms.length, 0);
+  assert.match(context.__trustSendPreviewEl.textContent, /About to send:/);
 });
 
 test('file read action accepts JSON pagination payloads', async () => {

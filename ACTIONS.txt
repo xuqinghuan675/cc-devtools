@@ -4,10 +4,10 @@ cc-devtools - action reference
 The assistant can use these tags in replies. The DevTools panel parses them,
 runs the requested page or file action, and sends the result back into the chat.
 
-Current Workbench status: initial Plan 0-7 implementation is preliminarily
-complete. Actions still run through the Chat page, while Evidence, Recorder,
-Patch, Tests, Visual, Trust, and Recipes provide structured workflows around
-the same action protocol.
+Current Workbench status: implemented and maintained as a mature local-first
+frontend debugging Workbench. Actions still run through the Chat page, while
+Evidence, Recorder, Patch, Tests, Visual, Trust, and Recipes provide structured
+workflows around the same action protocol.
 
 [ACTION:eval]JavaScript code[/ACTION]
     Run JavaScript in the inspected page and return the result.
@@ -117,7 +117,7 @@ Workbench notes
 Evidence:
     Action results can be recorded as EvidenceItem records. Selected evidence is
     sent as a normal user message, not merged into pageContext, and goes through
-    redaction plus Send Preview.
+    redaction plus Send Preview confirmation.
 
 Recorder:
     Bug Flight Recorder keeps a bounded ring buffer. Input events store selector
@@ -132,6 +132,9 @@ Visual:
     explicit status and may be unsupported until capture permissions are added.
 
 Trust:
+    Ordinary Chat sends update the latest Send Preview without forcing a modal.
+    Selected evidence, BugBundles, test drafts, patch/file content, and Observe
+    Only sends with page context require preview confirmation.
     Observe Only blocks mutation and privileged reads.
     Debug Safe allows page interactions, confirms eval/file reads/storage writes,
     and blocks file writes.

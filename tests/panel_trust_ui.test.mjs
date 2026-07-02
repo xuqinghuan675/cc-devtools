@@ -61,6 +61,7 @@ function loadTrustContext(options = {}) {
   const definitionsOnly = panelSource.split('\ninitWorkbenchTabs();')[0];
   const elements = new Map();
   const confirms = [];
+  const sentMessages = [];
 
   for (const selector of [
     '#messages',
@@ -109,13 +110,15 @@ function loadTrustContext(options = {}) {
     setTimeout() {},
     window: {},
     WebSocket: { OPEN: 1 },
+    __sentMessages: sentMessages,
   };
   vm.createContext(context);
   vm.runInContext(coreSource, context);
   vm.runInContext(viewsSource, context);
   vm.runInContext(definitionsOnly, context);
+  context.send = async (msg) => sentMessages.push(msg);
   context.initTrustBoard();
-  return { context, elements, confirms };
+  return { context, elements, confirms, sentMessages };
 }
 
 test('Trust page exposes mode selector, matrix, and send preview surface', () => {
@@ -155,4 +158,21 @@ test('Trust UI mode drives actionPolicy and shared send preview', () => {
   assert.match(elements.get('#trust-send-preview').textContent, /Network: 1/);
   assert.doesNotMatch(elements.get('#trust-send-preview').textContent, /abc123/);
   assert.equal(confirms.length, 1);
+});
+
+test('Debug Safe blocks save with Patch Sandbox guidance instead of plan-mode wording', async () => {
+  const { context } = loadTrustContext({ mode: 'debug' });
+  let executed = false;
+  context.executeAction = async () => {
+    executed = true;
+    return 'wrote file';
+  };
+
+  await context.executeActions([{ type: 'save', code: 'src/App.jsx\nnext', placeholder: 'missing' }]);
+
+  assert.equal(executed, false);
+  const result = Object.values(context.__sentMessages[0].actionResults)[0];
+  assert.match(result, /File write blocked by Debug Safe/);
+  assert.match(result, /Switch Trust Mode to Patch Sandbox/);
+  assert.doesNotMatch(result, /Plan mode/i);
 });

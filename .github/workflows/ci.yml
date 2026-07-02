@@ -29,7 +29,7 @@ jobs:
         run: python -m unittest discover -s tests -p "test_*.py"
 
       - name: Node tests
-        run: node --test tests/bridge_safety.test.mjs tests/bridge_static_files.test.mjs tests/bridge_workflows.test.mjs tests/bridge_file_actions.test.mjs tests/bridge_project_scan.test.mjs tests/panel_parse_actions.test.mjs tests/panel_payload.test.mjs tests/panel_workflow_options.test.mjs
+        run: node --test tests/*.test.mjs
 
       - name: Syntax checks
         run: |

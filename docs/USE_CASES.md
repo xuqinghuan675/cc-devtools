@@ -2,7 +2,7 @@
 
 cc-devtools is built for frontend developers who want an AI agent to use DevTools evidence instead of guessing from screenshots or pasted logs.
 
-The first Workbench milestone is preliminarily complete: Chat, Evidence, Recorder, Visual, Patch, Tests, Trust, and Recipes now form one local debugging loop.
+The Workbench is implemented as a complete local debugging loop: Chat, Evidence, Recorder, Visual, Patch, Tests, Trust, and Recipes work together around the same action protocol.
 
 ## 1. Inspect a Page
 
@@ -24,7 +24,7 @@ Typical flow:
 2. Inspect the generated evidence cards.
 3. Select only the cards that matter.
 4. Click **Copy selected** or **Send selected**.
-5. Confirm the redacted Send Preview before sending.
+5. Confirm the redacted Send Preview before sending selected evidence.
 
 This keeps selected user evidence separate from automatically attached page context.
 
@@ -119,7 +119,7 @@ Use **Trust** before switching from observation to mutation.
 | Debug Safe | You want click/input/press and safe project metadata, but not file writes. |
 | Patch Sandbox | You are in a trusted local project root and want patch transactions. |
 
-The page also shows the latest Send Preview so you can audit what is about to leave the panel.
+The page also shows the latest Send Preview so you can audit what is about to leave the panel. Ordinary Chat sends update this preview without interrupting the chat flow; selected evidence, BugBundles, test drafts, patch/file content, and Observe Only page-context sends require confirmation.
 
 ## 9. Keep Project Recipes
 

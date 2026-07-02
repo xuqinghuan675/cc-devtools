@@ -181,6 +181,29 @@ test('executeActions records flight-recorder events without breaking the action 
   assert.ok(events.some((event) => event.type === 'storage' && event.storageChanges.localStorage.added.includes('saved')));
 });
 
+test('input action evidence stores selector and value summary without raw value', async () => {
+  const context = loadPanelContext();
+  context.executeAction = async () => 'Typed into input#password';
+
+  await context.executeActions([{ type: 'input', code: 'input#password\nabc12345', placeholder: 'missing' }]);
+
+  const evidence = context.getEvidenceItems()[0];
+  assert.equal(evidence.payload.actionType, 'input');
+  assert.equal(evidence.payload.selector, 'input#password');
+  assert.deepEqual(JSON.parse(JSON.stringify(evidence.payload.valueSummary)), {
+    length: 8,
+    empty: false,
+    redacted: true,
+  });
+  assert.equal(Object.hasOwn(evidence.payload, 'code'), false);
+  assert.equal(Object.hasOwn(evidence.payload, 'value'), false);
+  assert.doesNotMatch(JSON.stringify(evidence.payload), /abc12345/);
+
+  const actionResults = JSON.stringify(context.__sentMessages[0].actionResults);
+  assert.match(actionResults, /input#password/);
+  assert.doesNotMatch(actionResults, /abc12345/);
+});
+
 test('executeInput script uses native value setters and avoids innerHTML injection', () => {
   const context = loadPanelContext();
   context.executeInspectedWindowEval = (code) => code;
