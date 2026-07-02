@@ -2,6 +2,8 @@
 
 cc-devtools is built for frontend developers who want an AI agent to use DevTools evidence instead of guessing from screenshots or pasted logs.
 
+The first Workbench milestone is preliminarily complete: Chat, Evidence, Recorder, Visual, Patch, Tests, Trust, and Recipes now form one local debugging loop.
+
 ## 1. Inspect a Page
 
 Ask:
@@ -10,10 +12,23 @@ Ask:
 What is on this page? Identify the main user flows and important selectors.
 ```
 
-The agent should collect title, URL, visible text, DOM snippets, console logs, and network summaries before summarizing.
-When local source context matters, it should also scan the frontend project to identify framework, bundler, scripts, config files, key directories, entry files, and data/service candidates.
+The agent should collect title, URL, visible text, DOM snippets, console logs, and network summaries before summarizing. When local source context matters, it should also scan the frontend project to identify framework, bundler, scripts, config files, key directories, entry files, and data/service candidates.
 
-## 2. Debug a Broken Page
+## 2. Build an Evidence Board
+
+Use **Evidence** when a bug needs traceable facts rather than a free-form chat transcript.
+
+Typical flow:
+
+1. Run actions such as `[ACTION:console][/ACTION]`, `[ACTION:network][/ACTION]`, `[ACTION:dom]selector[/ACTION]`, and `[ACTION:file:read]path[/ACTION]`.
+2. Inspect the generated evidence cards.
+3. Select only the cards that matter.
+4. Click **Copy selected** or **Send selected**.
+5. Confirm the redacted Send Preview before sending.
+
+This keeps selected user evidence separate from automatically attached page context.
+
+## 3. Debug a Broken Page
 
 Ask:
 
@@ -26,12 +41,111 @@ For interactive failures, the agent can click the button, type into fields, pres
 Expected output:
 
 - Symptom
-- Evidence
+- Evidence IDs
 - Likely cause
 - Smallest fix
 - Verification step
 
-## 3. Generate Stable Selectors
+## 4. Record a Bug Flight
+
+Use **Recorder** when you want a bounded event trail for a bug report.
+
+The recorder stores a 2-minute / 300-event / 1 MB ring buffer. It records clicks, key presses, route/title changes, summarized input events, console/network summaries, and storage key diffs. Input values are summarized and sensitive fields are redacted.
+
+Click **Pack bug bundle** to create a BugBundle with:
+
+- Symptom
+- Reproduction Steps
+- Expected
+- Actual
+- Console Evidence
+- Network Evidence
+- Suspected Area
+- Environment
+- Evidence IDs
+
+## 5. Generate a Playwright Draft
+
+Use **Tests** after recording or selecting action evidence.
+
+Ask:
+
+```text
+Turn the selected reproduction evidence into a Playwright test draft.
+```
+
+The first version generates a copy-only draft from selected action evidence and assertions. It does not write test files. Selector confidence is shown so fragile selectors are visible.
+
+## 6. Preview a Patch Transaction
+
+Use **Patch** when the fix is a known file path plus complete replacement content.
+
+The page runs a conservative state machine:
+
+```text
+draft -> preview -> applied -> verifying -> verified
+                     -> failed -> rolled_back
+```
+
+It reads a backup, displays a diff preview, applies through the existing file-write path, supports manual verification notes, and can rollback from the backup.
+
+This first version intentionally avoids AST patches, multi-file merges, git worktrees, and auto commits.
+
+## 7. Diagnose DOM Clickability
+
+Use **Visual** when a control looks visible but does not behave correctly.
+
+Enter a CSS selector and diagnose:
+
+- element DOM summary
+- `boundingClientRect`
+- computed style
+- display/visibility/opacity/pointer-events
+- disabled and aria-disabled state
+- overflow clipping chain
+- clickable center point
+- top element returned by `elementFromPoint`
+- screenshot capability status
+
+The first version is DOM-first and does not require screenshot permissions.
+
+## 8. Choose a Trust Mode
+
+Use **Trust** before switching from observation to mutation.
+
+| Mode | Use it when |
+|---|---|
+| Observe Only | You only want page, console, network, DOM, and URL/title observation. |
+| Debug Safe | You want click/input/press and safe project metadata, but not file writes. |
+| Patch Sandbox | You are in a trusted local project root and want patch transactions. |
+
+The page also shows the latest Send Preview so you can audit what is about to leave the panel.
+
+## 9. Keep Project Recipes
+
+Use **Recipes** for repeated workflows and project-specific memory.
+
+Recipe fields:
+
+- name
+- description
+- tags
+- workflow
+- prompt template
+- evidence types
+- action plan
+
+Project Memory buckets:
+
+- ignored console patterns
+- known selectors
+- common flows
+- API contracts
+- QA checklists
+
+The first version is manual import/export only. It does not automatically learn from your project and does not write memory files to disk.
+
+## 10. Generate Stable Selectors
 
 Ask:
 
@@ -39,9 +153,9 @@ Ask:
 Generate a Playwright locator for the checkout submit button and verify it is unique.
 ```
 
-The agent should prefer user-facing locators, labels, role/name, and test IDs before fragile class chains.
+The agent should prefer user-facing locators, labels, role/name, and test IDs before fragile class chains. The Tests page will also show selector confidence for generated draft actions.
 
-## 4. QA a Page Before Release
+## 11. QA a Page Before Release
 
 Ask:
 
@@ -54,8 +168,9 @@ Expected output:
 - Blocking issues first
 - Evidence from DevTools actions
 - Non-blocking polish separately
+- Optional BugBundle or generated Playwright draft if a bug is reproducible
 
-## 5. Frontend Loop Demo
+## 12. Frontend Loop Demo
 
 Ask on the bundled `examples/country-selector-loop` page:
 
@@ -74,36 +189,7 @@ The agent should:
 7. Click Verify.
 8. Report `#verification-output` as proof.
 
-This is the shortest demo of cc-devtools' differentiator: DevTools evidence, local source awareness, disk writes, and browser verification in one F12 chat.
-
-## 6. Local Data Patch
-
-Ask:
-
-```text
-Add Singapore to the country selector. Use a local JSON file instead of changing the backend.
-```
-
-The agent should:
-
-1. Inspect the visible control.
-2. Check Network for data requests.
-3. Scan the local project to learn framework, bundler, scripts, config files, key directories, dependencies, entry files, and data/service candidates.
-4. List and read source files inside `CC_DEVTOOLS_WRITE_ROOT`.
-5. Infer the data shape.
-6. Write a local JSON file.
-7. Patch the frontend data loader.
-8. Click or type in the page and verify that Singapore appears.
-
-## 7. Reproduce a GitHub Issue
-
-Ask:
-
-```text
-Turn this page bug into a GitHub issue report with reproduction steps, expected behavior, actual behavior, console logs, and network evidence.
-```
-
-This is useful for maintainers because the report includes evidence instead of only a screenshot.
+This is the shortest demo of cc-devtools' differentiator: DevTools evidence, local source awareness, disk writes, and browser verification in one F12 Workbench.
 
 ## What cc-devtools Is Not
 

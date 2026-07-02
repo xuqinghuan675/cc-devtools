@@ -63,7 +63,59 @@ ${rowText}
 `;
 }
 
+function socialPreviewSvg() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">cc-devtools Workbench social preview</title>
+  <desc id="desc">Local frontend agent Workbench inside Chrome F12 DevTools</desc>
+  <style>
+    .bg { fill: #101112; }
+    .frame { fill: #1b1d20; stroke: #343941; stroke-width: 3; }
+    .panel { fill: #121416; stroke: #30343a; stroke-width: 2; }
+    .brand { fill: #58c7b1; font: 700 42px "Segoe UI", Arial, sans-serif; }
+    .headline { fill: #f4f7f8; font: 800 62px "Segoe UI", Arial, sans-serif; }
+    .copy { fill: #cbd5df; font: 28px "Segoe UI", Arial, sans-serif; }
+    .label { fill: #e8ecef; font: 700 24px "Segoe UI", Arial, sans-serif; }
+    .small { fill: #aab6c2; font: 20px "Segoe UI", Arial, sans-serif; }
+    .mono { fill: #d9f7e6; font: 22px "Cascadia Code", Consolas, monospace; }
+  </style>
+  <rect class="bg" width="1280" height="640"/>
+  <rect class="frame" x="72" y="64" width="1136" height="512" rx="18"/>
+  <text x="112" y="142" class="brand">cc-devtools</text>
+  <text x="112" y="220" class="headline">Frontend Agent Workbench</text>
+  <text x="112" y="276" class="copy">Evidence, recorder, tests, patches, trust, and recipes</text>
+  <text x="112" y="316" class="copy">directly inside Chrome F12 DevTools.</text>
+  <rect class="panel" x="112" y="372" width="258" height="96" rx="8"/>
+  <text x="136" y="414" class="label">Evidence</text>
+  <text x="136" y="448" class="small">redacted send preview</text>
+  <rect class="panel" x="394" y="372" width="258" height="96" rx="8"/>
+  <text x="418" y="414" class="label">Recorder</text>
+  <text x="418" y="448" class="small">BugBundle to Playwright</text>
+  <rect class="panel" x="676" y="372" width="258" height="96" rx="8"/>
+  <text x="700" y="414" class="label">Patch</text>
+  <text x="700" y="448" class="small">preview, apply, rollback</text>
+  <rect class="panel" x="958" y="372" width="190" height="96" rx="8"/>
+  <text x="982" y="414" class="label">Trust</text>
+  <text x="982" y="448" class="small">mode matrix</text>
+  <rect x="112" y="504" width="1036" height="40" rx="8" fill="#13241b" stroke="#2f6544" stroke-width="2"/>
+  <text x="136" y="531" class="mono">Initial Workbench complete: observe -> reproduce -> test -> patch -> verify</text>
+</svg>
+`;
+}
+
 const screenshotAssets = [
+  {
+    file: 'screenshot-workbench-overview.svg',
+    title: 'Workbench overview',
+    eyebrow: 'Plan 0-7 initial Workbench',
+    rows: [
+      'Tabs: Chat, Evidence, Recorder, Visual',
+      'Patch and Tests turn bugs into fixes and drafts',
+      'Trust shows mode matrix and send preview',
+      'Recipes keeps manual workflows and project memory',
+    ],
+    footer: 'Initial Workbench complete: evidence -> reproduce -> test -> patch -> trust',
+    accent: '#58c7b1',
+  },
   {
     file: 'screenshot-connection-success.svg',
     title: 'Bridge connected',
@@ -104,6 +156,10 @@ const screenshotAssets = [
     accent: '#73d99f',
   },
 ];
+
+const socialPreviewPath = join(assetDir, 'social-preview.svg');
+writeFileSync(socialPreviewPath, socialPreviewSvg(), 'utf8');
+console.log(`Generated ${socialPreviewPath}`);
 
 for (const asset of screenshotAssets) {
   const path = join(assetDir, asset.file);

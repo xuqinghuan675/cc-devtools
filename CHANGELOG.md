@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Mark the first Workbench milestone as preliminarily complete across documentation
+- Add Workbench tabs: Chat, Evidence, Recorder, Visual, Patch, Tests, Trust, and Recipes
+- Add Safety Kernel helpers, TrustPolicy, Trust Mode permission matrix, and shared Send Preview
+- Add Evidence Board with structured EvidenceItem records, filtering, selection, copy, and redacted send summary
+- Add Bug Flight Recorder with bounded ring buffer and BugBundle generation
+- Add copy-only Playwright test draft generation from selected evidence
+- Add conservative Patch Transaction flow with backup, diff preview, apply, verify, and rollback states
+- Add DOM-first Visual diagnostics for selector visibility, clickability, style, overflow, and coverage
+- Add manual Recipes and Project Memory import/export with schema validation
+- Add updated README screenshots including Workbench overview
 - Restrict `[ACTION:save]` writes to the configured bridge write root
 - Add DevTools workflow modes: Inspect, Debug, Selector, QA, Local Data Patch, and Frontend Loop
 - Add local file actions for listing and reading project files inside the bridge write root

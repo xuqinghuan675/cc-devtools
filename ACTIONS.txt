@@ -1,8 +1,13 @@
-Claude Code DevTools - action reference
-=======================================
+cc-devtools - action reference
+==============================
 
 The assistant can use these tags in replies. The DevTools panel parses them,
 runs the requested page or file action, and sends the result back into the chat.
+
+Current Workbench status: initial Plan 0-7 implementation is preliminarily
+complete. Actions still run through the Chat page, while Evidence, Recorder,
+Patch, Tests, Visual, Trust, and Recipes provide structured workflows around
+the same action protocol.
 
 [ACTION:eval]JavaScript code[/ACTION]
     Run JavaScript in the inspected page and return the result.
@@ -99,7 +104,36 @@ file content from the next line
     Write a local file under the bridge write root and create parent directories.
     The default write root is the directory where the bridge was started.
     You can override it with CC_DEVTOOLS_WRITE_ROOT.
+    Writes require CC_DEVTOOLS_ENABLE_WRITE=1. Trust Mode can block or allow the
+    panel-side action, but it does not bypass the bridge write gate.
     Example:
     [ACTION:save]public/cc-devtools/countries.json
     [{"code":"SG","name":"Singapore"}]
     [/ACTION]
+
+Workbench notes
+---------------
+
+Evidence:
+    Action results can be recorded as EvidenceItem records. Selected evidence is
+    sent as a normal user message, not merged into pageContext, and goes through
+    redaction plus Send Preview.
+
+Recorder:
+    Bug Flight Recorder keeps a bounded ring buffer. Input events store selector
+    plus value summary, not full values by default.
+
+Patch:
+    Patch Transaction is intentionally conservative: one known file path plus
+    complete proposed content, preview diff, backup, apply, verify, and rollback.
+
+Visual:
+    Visual diagnostics are DOM-first. Screenshot support is represented as an
+    explicit status and may be unsupported until capture permissions are added.
+
+Trust:
+    Observe Only blocks mutation and privileged reads.
+    Debug Safe allows page interactions, confirms eval/file reads/storage writes,
+    and blocks file writes.
+    Patch Sandbox allows file reads/writes but still confirms eval and storage
+    mutations.

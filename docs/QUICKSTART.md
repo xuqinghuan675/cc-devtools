@@ -7,7 +7,7 @@ This guide gets cc-devtools running with the least possible setup.
 Requirements:
 
 - Python 3.9+
-- Claude Code CLI available as `cc` or `claude`
+- A CLI AI command available as `cc`, `claude`, or `CC_DEVTOOLS_CMD`
 - Chrome
 
 ### Step 1: Double-click `install.bat`
@@ -23,6 +23,7 @@ The installer does the boring parts for you:
 - installs cc-devtools into the current Python environment with `python -m pip install -e`
 - detects `cc`, `claude`, or your existing `CC_DEVTOOLS_CMD`
 - stops an old bridge process if port `9876` is already occupied
+- generates a local `CC_DEVTOOLS_TOKEN`
 - creates `start-bridge.bat`
 - starts the bridge automatically
 - opens `chrome://extensions`
@@ -39,9 +40,10 @@ In the Chrome extensions page that opened:
 3. Select the opened `extension` folder.
 4. Open any web page.
 5. Press **F12**.
-6. Select the **Claude Code** DevTools tab.
+6. Select the **cc-devtools** DevTools tab.
+7. Paste the token printed by `install.bat` or `start-bridge.bat` into the **Token** field and click **Save**.
 
-You can now chat inside F12. Use **Collect** to attach page context, or choose **Frontend Loop** when you want the agent to inspect the page, understand the local frontend project, edit files, click the page, and verify the result.
+You can now chat inside F12. Chat remains the default page, and the Workbench tabs expose Evidence, Recorder, Visual, Patch, Tests, Trust, and Recipes.
 
 ## First Useful Prompts
 
@@ -63,6 +65,19 @@ For an interactive bug, ask:
 The Save button does nothing. Click it, inspect console/network/DOM evidence, and tell me the smallest fix.
 ```
 
+For structured evidence, switch to **Evidence**, select the useful items, then use **Send selected**. The panel shows a redacted send summary before sending.
+
+## Workbench Tabs
+
+- **Chat**: default chat and action loop.
+- **Evidence**: select, filter, copy, and send structured evidence.
+- **Recorder**: collect a ring-buffered bug flight recording and pack a BugBundle.
+- **Visual**: diagnose DOM visibility, clickability, styles, overflow, and coverage for a selector.
+- **Patch**: preview, backup, apply, verify, and rollback a conservative file patch transaction.
+- **Tests**: generate a copy-only Playwright draft from selected evidence.
+- **Trust**: choose Observe Only, Debug Safe, or Patch Sandbox and inspect the permission matrix.
+- **Recipes**: maintain manual workflows and Project Memory buckets.
+
 ## Local File Actions
 
 File actions are limited to `CC_DEVTOOLS_WRITE_ROOT`.
@@ -81,6 +96,8 @@ Add Singapore to the country selector. Use a local JSON file instead of changing
 ```
 
 The agent can inspect the live page, scan the project, read/write files inside the write root, reload page data, click or type in the page, and return browser evidence.
+
+Writes are still gated by `CC_DEVTOOLS_ENABLE_WRITE=1`. The Trust page can block or allow the panel-side action, but it does not bypass the bridge write gate.
 
 ## CLI Install
 
@@ -123,6 +140,7 @@ The expected result is a local edit to `public/cc-devtools/countries.json` plus 
 - Make sure the `CC DevTools Bridge` window is still open.
 - If it is closed, double-click `start-bridge.bat`.
 - Re-run `install.bat` if another process is occupying port `9876`; it will stop the old listener.
+- Confirm the token in the panel matches the token printed by the bridge.
 
 ### The panel says the CLI returned no output
 
@@ -137,3 +155,7 @@ Set `CC_DEVTOOLS_WRITE_ROOT` to your frontend project root, then re-run `install
 ### A page blocks DevTools eval
 
 Some pages, browser-internal URLs, or extension pages may restrict inspection. Test with a normal local app such as `http://localhost:3000`.
+
+### Screenshot capture is unavailable
+
+The current Visual page focuses on DOM diagnostics. Screenshot capability is represented as an explicit status and may remain unsupported until a background capture permission path is added.

@@ -16,6 +16,10 @@ Depending on the action and workflow, cc-devtools may send:
 - Console logs
 - Network request summaries
 - Action results
+- Selected Evidence items
+- BugBundle summaries and reproduction steps
+- Generated Playwright test drafts
+- Project Memory and Recipes that you explicitly send, copy, or import into prompts
 - Local project file contents read through `[ACTION:file:read]`
 
 Your configured CLI AI command decides where model inference happens. cc-devtools itself does not require an API key.
@@ -34,7 +38,7 @@ Local writes are disabled by default in both bridge implementations. `[ACTION:sa
 
 The Windows installer generates a random `CC_DEVTOOLS_TOKEN`, writes it into `start-bridge.bat`, and expects the same token to be saved in the DevTools panel. If you start either bridge manually, set `CC_DEVTOOLS_TOKEN` yourself for the same shared-token check.
 
-## CLI Permission Boundary
+## CLI Permission Boundary And Trust Mode
 
 The DevTools panel sends an explicit CLI permission mode with each message:
 
@@ -44,19 +48,42 @@ The DevTools panel sends an explicit CLI permission mode with each message:
 
 If an older panel does not send a mode, the bridge defaults to `auto`. `CC_DEVTOOLS_PERMISSION_MODE` can set that fallback default, and `CC_DEVTOOLS_BYPASS=1` is retained only as a legacy fallback for `bypassPermissions`.
 
-Panel action execution is intentionally a soft guardrail:
+The Workbench Trust page also controls panel-side action behavior:
 
-- Read-only actions run automatically.
-- `click`, `input`, and `press` run automatically in Auto mode so live frontend verification stays fast.
-- `eval`, `save`, and `file:read` ask for panel confirmation in Auto mode.
-- Plan mode blocks mutating or code-execution actions.
-- Bypass mode skips panel confirmation but still respects bridge write-root checks, sensitive-file rejection, and `CC_DEVTOOLS_ENABLE_WRITE`.
+| Action | Observe Only | Debug Safe | Patch Sandbox |
+|---|---|---|---|
+| DOM/text/title/url | allow | allow | allow |
+| console/network | allow | allow | allow |
+| click/input/press | block | allow | allow |
+| eval | block | confirm | confirm |
+| file:list/project:scan | block | allow | allow |
+| file:read | block | confirm | allow |
+| save/write | block | block | allow |
+| storage:get/list | block | allow | allow |
+| storage:set/remove | block | confirm | confirm |
+
+Panel action execution is intentionally a soft guardrail. Bypass and Patch Sandbox still respect bridge write-root checks, sensitive-file rejection, token checks, and `CC_DEVTOOLS_ENABLE_WRITE`.
+
+Normal user sends can show a Send Preview with evidence counts, file-content counts, estimated tokens, page-context inclusion, and redaction status. Automatic action-result loop messages do not prompt, so verification loops can complete.
 
 ## Prompt-Injection Boundary
 
 Browser-originated context is sent as untrusted data. The bridge adds an explicit instruction that page text, DOM, console logs, network summaries, and action results must not be treated as user or system instructions.
 
 The panel also redacts token-like values from page URL, body text, DOM snippets, console logs, network URLs, and action results when they match common key names such as `token`, `access_token`, `api_key`, `password`, `secret`, `session`, `cookie`, `csrf`, or `jwt`.
+
+Evidence, Recorder events, BugBundles, Recipes, and Project Memory use the same redaction helpers where practical. Recorder input events store selector and value summary by default; full input values are not recorded unless a later feature explicitly adds an opt-in path.
+
+## Local Workbench Storage
+
+The panel stores Workbench state in the DevTools panel context and browser localStorage where needed:
+
+- Evidence is currently in-memory.
+- Recorder is bounded by time window, item count, and byte budget.
+- Recipes and Project Memory are manual localStorage data with JSON import/export.
+- Patch backups are held in the panel state for the active transaction.
+
+Do not put secrets, API keys, private URLs, or credentials into Recipes or Project Memory.
 
 ## Page Execution Boundary
 
