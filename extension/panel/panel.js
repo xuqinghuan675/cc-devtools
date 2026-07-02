@@ -7,6 +7,9 @@ const ACTION_EVIDENCE_DELAY_MS = 350;
 const TOKEN_STORAGE_KEYS = ['CC_DEVTOOLS_TOKEN', 'cc_devtools_token'];
 const TOKEN_STORAGE_KEY = TOKEN_STORAGE_KEYS[0];
 const ACTION_ROUNDS_STORAGE_KEY = 'CC_DEVTOOLS_MAX_ACTION_ROUNDS';
+const TRUST_MODE_STORAGE_KEY = 'CC_DEVTOOLS_TRUST_MODE';
+const RECIPES_STORAGE_KEY = 'CC_DEVTOOLS_RECIPES';
+const PROJECT_MEMORY_STORAGE_KEY = 'CC_DEVTOOLS_PROJECT_MEMORY';
 const PLAN_ALLOWED_ACTIONS = new Set(['dom', 'dom:all', 'text', 'console', 'network', 'title', 'url', 'copy', 'file:list', 'project:scan', 'storage:list', 'storage:get']);
 const AUTO_CONFIRM_ACTIONS = new Set(['eval', 'save', 'file:read', 'storage:set', 'storage:remove']);
 const EVIDENCE_ACTIONS = new Set(['eval', 'click', 'input', 'press', 'storage:set', 'storage:remove']);
@@ -33,6 +36,9 @@ let recorderDrainTimer = null;
 let recorderInjected = false;
 let activeBugBundle = null;
 let activeVisualDiagnostic = null;
+let activeRecipeId = null;
+let recipes = [];
+let projectMemory = null;
 
 const $ = (s) => document.querySelector(s);
 const messagesEl = $('#messages');
@@ -106,6 +112,35 @@ const patchRollbackBtn = $('#patch-rollback-btn');
 const patchDiffPreviewEl = $('#patch-diff-preview');
 const patchMessageEl = $('#patch-message');
 const patchSessionJsonEl = $('#patch-session-json');
+const trustModeSelectEl = $('#trust-mode-select');
+const trustPolicySummaryEl = $('#trust-policy-summary');
+const trustPermissionMatrixEl = $('#trust-permission-matrix');
+const trustSendPreviewEl = $('#trust-send-preview');
+const recipesListEl = $('#recipes-list');
+const recipesCountEl = $('#recipes-count');
+const recipeNameEl = $('#recipe-name');
+const recipeDescriptionEl = $('#recipe-description');
+const recipeTagsEl = $('#recipe-tags');
+const recipeWorkflowEl = $('#recipe-workflow');
+const recipePromptTemplateEl = $('#recipe-prompt-template');
+const recipeEvidenceTypesEl = $('#recipe-evidence-types');
+const recipeActionPlanEl = $('#recipe-action-plan');
+const recipeSaveBtn = $('#recipe-save-btn');
+const recipeDeleteBtn = $('#recipe-delete-btn');
+const recipeClearBtn = $('#recipe-clear-btn');
+const recipesExportBtn = $('#recipes-export-btn');
+const recipesImportBtn = $('#recipes-import-btn');
+const recipesImportExportEl = $('#recipes-import-export');
+const projectMemoryCountEl = $('#project-memory-count');
+const projectMemoryBucketEl = $('#project-memory-bucket');
+const projectMemoryEntryEl = $('#project-memory-entry');
+const projectMemoryListEl = $('#project-memory-list');
+const projectMemoryAddBtn = $('#project-memory-add-btn');
+const projectMemoryClearBucketBtn = $('#project-memory-clear-bucket-btn');
+const projectMemoryExportBtn = $('#project-memory-export-btn');
+const projectMemoryImportBtn = $('#project-memory-import-btn');
+const projectMemoryImportExportEl = $('#project-memory-import-export');
+const recipesMessageEl = $('#recipes-message');
 let activeWorkbenchTab = 'chat';
 let activeEvidenceId = null;
 let activeGeneratedTestDraft = null;
@@ -329,6 +364,19 @@ function queryAll(selector) {
   return Array.from(document.querySelectorAll(selector));
 }
 
+function replaceElementChildren(element, ...children) {
+  if (!element) return;
+  if (typeof element.replaceChildren === 'function') {
+    element.replaceChildren(...children);
+    return;
+  }
+  if (Array.isArray(element.children)) {
+    element.children.length = 0;
+    children.forEach((child) => element.children.push(child));
+  }
+  if (children.length === 0 && 'textContent' in element) element.textContent = '';
+}
+
 function readDataValue(element, keys) {
   if (!element) return '';
   for (const key of keys) {
@@ -387,6 +435,8 @@ function activateWorkbenchTab(tabId) {
   if (nextTab === 'visual') renderVisualBoard();
   if (nextTab === 'patch') renderPatchBoard();
   if (nextTab === 'tests') renderTestsBoard();
+  if (nextTab === 'trust') renderTrustBoard();
+  if (nextTab === 'recipes') renderRecipesBoard();
 
   return activeWorkbenchTab;
 }
@@ -653,11 +703,75 @@ async function copySelectedEvidence() {
   return content;
 }
 
-function confirmEvidenceSend(summaryText) {
-  const message = `Send selected evidence?\n\n${summaryText}`;
+function getSelectedTrustMode() {
+  const value = trustModeSelectEl && trustModeSelectEl.value ? trustModeSelectEl.value : '';
+  if (PanelCore && Array.isArray(PanelCore.TRUST_MODES) && PanelCore.TRUST_MODES.includes(value)) return value;
+  return value || getSelectedPermissionMode();
+}
+
+function getActiveTrustPolicy() {
+  if (PanelCore && typeof PanelCore.createTrustPolicy === 'function') {
+    return PanelCore.createTrustPolicy(getSelectedTrustMode());
+  }
+  return { mode: getSelectedPermissionMode(), requireSendPreview: false, canSendPageContext: true };
+}
+
+function buildSendPreview(input = {}) {
+  if (PanelCore && typeof PanelCore.createSendPreview === 'function') {
+    return PanelCore.createSendPreview({
+      ...input,
+      policy: input.policy || getActiveTrustPolicy(),
+    });
+  }
+  const selectedEvidence = input.selectedEvidence || [];
+  const summary = summarizeEvidenceItems(selectedEvidence);
+  const mode = getSelectedTrustMode();
+  return {
+    schemaVersion: 1,
+    target: input.target || 'chat',
+    mode,
+    evidenceCount: summary.evidenceCount,
+    consoleCount: summary.consoleCount,
+    networkCount: summary.networkCount,
+    fileContentCount: summary.fileContentCount,
+    pageContextIncluded: Boolean(input.pageContext),
+    actionResultsIncluded: Boolean(input.actionResults),
+    bugBundleIncluded: Boolean(input.bugBundle),
+    testDraftIncluded: Boolean(input.testDraft),
+    estimatedTokens: summary.estimatedTokens,
+    redactionEnabled: true,
+    requireConfirmation: input.requireConfirmation !== undefined
+      ? Boolean(input.requireConfirmation)
+      : !(mode === 'auto' || mode === 'bypassPermissions'),
+    blockedReason: '',
+  };
+}
+
+function formatSendPreview(preview) {
+  if (PanelCore && typeof PanelCore.formatSendPreviewSummary === 'function') {
+    return PanelCore.formatSendPreviewSummary(preview);
+  }
+  return `About to send:\n- Evidence: ${preview.evidenceCount}\n- Estimated tokens: ${preview.estimatedTokens}`;
+}
+
+function renderTrustSendPreview(preview) {
+  if (!trustSendPreviewEl || !preview) return;
+  trustSendPreviewEl.textContent = formatSendPreview(preview);
+}
+
+function confirmSendPreview(preview) {
+  const summaryText = formatSendPreview(preview);
+  renderTrustSendPreview(preview);
+  if (preview && preview.blockedReason) return false;
+  if (preview && preview.requireConfirmation === false) return true;
+  const message = `${summaryText}\n\nSend now?`;
   if (typeof confirm === 'function') return confirm(message);
   if (typeof window !== 'undefined' && typeof window.confirm === 'function') return window.confirm(message);
   return false;
+}
+
+function confirmEvidenceSend(summaryText) {
+  return confirmSendPreview(buildSendPreview({ target: 'selected evidence', content: summaryText, requireConfirmation: true }));
 }
 
 async function sendSelectedEvidence() {
@@ -667,11 +781,18 @@ async function sendSelectedEvidence() {
     addSystemMessage('No selected evidence to send.');
     return;
   }
-  if (!confirmEvidenceSend(preview ? preview.text : formatEvidenceSummary(summarizeEvidenceItems(selected)))) {
+  const message = selectedEvidenceMessage(selected);
+  const sendPreview = buildSendPreview({
+    target: 'selected evidence',
+    content: message,
+    selectedEvidence: selected,
+    requireConfirmation: true,
+  });
+  if (!confirmSendPreview(sendPreview || buildSendPreview({ target: 'selected evidence', content: preview ? preview.text : formatEvidenceSummary(summarizeEvidenceItems(selected)) }))) {
     addSystemMessage('Evidence send cancelled.');
     return;
   }
-  await send({ content: selectedEvidenceMessage(selected) });
+  await send({ content: message, selectedEvidence: selected, sendPreview, sendPreviewConfirmed: true });
 }
 
 function clearEvidence() {
@@ -687,6 +808,96 @@ function initEvidenceBoard() {
   if (evidenceCopySelectedBtn) evidenceCopySelectedBtn.addEventListener('click', copySelectedEvidence);
   if (evidenceClearBtn) evidenceClearBtn.addEventListener('click', clearEvidence);
   renderEvidenceBoard();
+}
+
+function trustModeLabel(mode) {
+  const labels = {
+    observe: 'Observe Only',
+    debug: 'Debug Safe',
+    patch: 'Patch Sandbox',
+    auto: 'Auto',
+    plan: 'Plan',
+    bypassPermissions: 'Bypass',
+  };
+  return labels[mode] || mode || 'Debug Safe';
+}
+
+function trustDecisionLabel(value) {
+  if (value === 'allow') return 'allow';
+  if (value === 'confirm') return 'confirm';
+  return 'block';
+}
+
+function renderTrustPermissionMatrix() {
+  if (!trustPermissionMatrixEl) return;
+  const matrix = PanelCore && typeof PanelCore.getTrustPermissionMatrix === 'function'
+    ? PanelCore.getTrustPermissionMatrix()
+    : [];
+  replaceElementChildren(trustPermissionMatrixEl);
+  const table = document.createElement('table');
+  table.className = 'trust-matrix';
+  const header = document.createElement('tr');
+  ['Action', 'Observe Only', 'Debug Safe', 'Patch Sandbox'].forEach((label) => {
+    const cell = document.createElement('th');
+    cell.textContent = label;
+    header.appendChild(cell);
+  });
+  table.appendChild(header);
+  matrix.forEach((row) => {
+    const tr = document.createElement('tr');
+    [row.action, row.observe, row.debug, row.patch].forEach((value, index) => {
+      const cell = document.createElement(index === 0 ? 'th' : 'td');
+      cell.textContent = index === 0 ? value : trustDecisionLabel(value);
+      if (index > 0) cell.className = `trust-decision trust-decision-${trustDecisionLabel(value)}`;
+      tr.appendChild(cell);
+    });
+    table.appendChild(tr);
+  });
+  trustPermissionMatrixEl.appendChild(table);
+}
+
+function renderTrustBoard() {
+  const policy = getActiveTrustPolicy();
+  if (trustPolicySummaryEl) {
+    trustPolicySummaryEl.textContent = [
+      trustModeLabel(policy.mode),
+      `page context: ${policy.canSendPageContext ? 'yes' : 'no'}`,
+      `page mutation: ${policy.canRunPageMutation ? 'yes' : 'no'}`,
+      `eval: ${policy.canRunEval ? 'confirm' : 'no'}`,
+      `read file: ${policy.canReadFile ? 'yes' : 'confirm/no'}`,
+      `write file: ${policy.canWriteFile ? 'yes' : 'no'}`,
+    ].join(' | ');
+  }
+  renderTrustPermissionMatrix();
+}
+
+function persistTrustMode() {
+  const storage = getPanelStorage();
+  if (storage && trustModeSelectEl) {
+    try {
+      storage.setItem(TRUST_MODE_STORAGE_KEY, trustModeSelectEl.value || 'debug');
+    } catch {
+      // Storage is best-effort only.
+    }
+  }
+  renderTrustBoard();
+}
+
+function initTrustBoard() {
+  if (!trustModeSelectEl) return;
+  const storage = getPanelStorage();
+  if (storage) {
+    try {
+      const savedMode = storage.getItem(TRUST_MODE_STORAGE_KEY);
+      if (savedMode && PanelCore && Array.isArray(PanelCore.TRUST_MODES) && PanelCore.TRUST_MODES.includes(savedMode)) {
+        trustModeSelectEl.value = savedMode;
+      }
+    } catch {
+      // Storage is best-effort only.
+    }
+  }
+  trustModeSelectEl.addEventListener('change', persistTrustMode);
+  renderTrustBoard();
 }
 
 function createRecorderStore() {
@@ -1792,6 +2003,296 @@ function initTestsBoard() {
   renderTestsBoard();
 }
 
+function recipesCoreReady() {
+  return PanelCore
+    && typeof PanelCore.createRecipe === 'function'
+    && typeof PanelCore.importRecipes === 'function'
+    && typeof PanelCore.createProjectMemory === 'function'
+    && typeof PanelCore.importProjectMemory === 'function';
+}
+
+function setRecipesMessage(message) {
+  if (recipesMessageEl) recipesMessageEl.textContent = message || '';
+}
+
+function readPanelStorageValue(key) {
+  const storage = getPanelStorage();
+  if (!storage) return '';
+  try {
+    return storage.getItem(key) || '';
+  } catch {
+    return '';
+  }
+}
+
+function writePanelStorageValue(key, value) {
+  const storage = getPanelStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(key, value);
+  } catch {
+    // Panel storage is best-effort only.
+  }
+}
+
+function createEmptyProjectMemory() {
+  if (PanelCore && typeof PanelCore.createProjectMemory === 'function') return PanelCore.createProjectMemory();
+  return {
+    schemaVersion: 1,
+    ignoredConsolePatterns: [],
+    knownSelectors: [],
+    commonFlows: [],
+    apiContracts: [],
+    qaChecklists: [],
+  };
+}
+
+function loadRecipesState() {
+  if (!recipesCoreReady()) {
+    recipes = [];
+    projectMemory = createEmptyProjectMemory();
+    return;
+  }
+  const recipeJson = readPanelStorageValue(RECIPES_STORAGE_KEY);
+  if (recipeJson) {
+    const importedRecipes = PanelCore.importRecipes(recipeJson);
+    recipes = importedRecipes.valid ? importedRecipes.recipes : [];
+  }
+  const memoryJson = readPanelStorageValue(PROJECT_MEMORY_STORAGE_KEY);
+  if (memoryJson) {
+    const importedMemory = PanelCore.importProjectMemory(memoryJson);
+    projectMemory = importedMemory.valid ? importedMemory.memory : createEmptyProjectMemory();
+  } else {
+    projectMemory = createEmptyProjectMemory();
+  }
+}
+
+function persistRecipesState() {
+  if (!recipesCoreReady()) return;
+  writePanelStorageValue(RECIPES_STORAGE_KEY, PanelCore.exportRecipes(recipes));
+  writePanelStorageValue(PROJECT_MEMORY_STORAGE_KEY, PanelCore.exportProjectMemory(projectMemory || createEmptyProjectMemory()));
+}
+
+function recipeFormValue(element) {
+  return element ? String(element.value || '') : '';
+}
+
+function createRecipeFromForm() {
+  const input = {
+    id: activeRecipeId || '',
+    name: recipeFormValue(recipeNameEl),
+    description: recipeFormValue(recipeDescriptionEl),
+    tags: recipeFormValue(recipeTagsEl),
+    workflow: recipeFormValue(recipeWorkflowEl),
+    promptTemplate: recipeFormValue(recipePromptTemplateEl),
+    evidenceTypes: recipeFormValue(recipeEvidenceTypesEl),
+    actionPlan: recipeFormValue(recipeActionPlanEl),
+  };
+  return recipesCoreReady() ? PanelCore.createRecipe(input) : input;
+}
+
+function setRecipeForm(recipe = null) {
+  activeRecipeId = recipe && recipe.id ? recipe.id : null;
+  if (recipeNameEl) recipeNameEl.value = recipe ? recipe.name || '' : '';
+  if (recipeDescriptionEl) recipeDescriptionEl.value = recipe ? recipe.description || '' : '';
+  if (recipeTagsEl) recipeTagsEl.value = recipe ? (recipe.tags || []).join(', ') : '';
+  if (recipeWorkflowEl) recipeWorkflowEl.value = recipe ? recipe.workflow || '' : '';
+  if (recipePromptTemplateEl) recipePromptTemplateEl.value = recipe ? recipe.promptTemplate || '' : '';
+  if (recipeEvidenceTypesEl) recipeEvidenceTypesEl.value = recipe ? (recipe.evidenceTypes || []).join(', ') : '';
+  if (recipeActionPlanEl) recipeActionPlanEl.value = recipe ? (recipe.actionPlan || []).join('\n') : '';
+}
+
+function renderRecipesList() {
+  if (!recipesListEl) return;
+  replaceElementChildren(recipesListEl);
+  recipes.forEach((recipe) => {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = `recipe-row${recipe.id === activeRecipeId ? ' active' : ''}`;
+    row.textContent = [
+      recipe.name || '(unnamed recipe)',
+      recipe.workflow ? `workflow: ${recipe.workflow}` : '',
+      recipe.tags && recipe.tags.length ? `tags: ${recipe.tags.join(', ')}` : '',
+    ].filter(Boolean).join(' | ');
+    row.addEventListener('click', () => {
+      setRecipeForm(recipe);
+      renderRecipesBoard();
+    });
+    recipesListEl.appendChild(row);
+  });
+}
+
+function countProjectMemoryItems(memory = projectMemory) {
+  const buckets = PanelCore && Array.isArray(PanelCore.MEMORY_BUCKETS)
+    ? PanelCore.MEMORY_BUCKETS
+    : ['ignoredConsolePatterns', 'knownSelectors', 'commonFlows', 'apiContracts', 'qaChecklists'];
+  return buckets.reduce((total, bucket) => total + ((memory && Array.isArray(memory[bucket])) ? memory[bucket].length : 0), 0);
+}
+
+function currentMemoryBucket() {
+  const value = projectMemoryBucketEl && projectMemoryBucketEl.value ? projectMemoryBucketEl.value : 'knownSelectors';
+  const buckets = PanelCore && Array.isArray(PanelCore.MEMORY_BUCKETS) ? PanelCore.MEMORY_BUCKETS : [];
+  return buckets.length && !buckets.includes(value) ? 'knownSelectors' : value;
+}
+
+function renderProjectMemoryList() {
+  if (!projectMemoryListEl) return;
+  replaceElementChildren(projectMemoryListEl);
+  const bucket = currentMemoryBucket();
+  const entries = (projectMemory && Array.isArray(projectMemory[bucket])) ? projectMemory[bucket] : [];
+  entries.forEach((entry, index) => {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'project-memory-row';
+    row.textContent = entry;
+    row.addEventListener('click', () => {
+      if (projectMemoryEntryEl) {
+        projectMemoryEntryEl.value = entry;
+        projectMemoryEntryEl.dataset.editingIndex = String(index);
+      }
+    });
+    projectMemoryListEl.appendChild(row);
+  });
+}
+
+function renderRecipesBoard() {
+  if (!recipesCoreReady()) return;
+  if (!projectMemory) projectMemory = createEmptyProjectMemory();
+  if (recipesCountEl) recipesCountEl.textContent = `${recipes.length} ${recipes.length === 1 ? 'recipe' : 'recipes'}`;
+  if (projectMemoryCountEl) {
+    const count = countProjectMemoryItems();
+    projectMemoryCountEl.textContent = `${count} ${count === 1 ? 'memory item' : 'memory items'}`;
+  }
+  renderRecipesList();
+  renderProjectMemoryList();
+}
+
+function saveRecipeFromForm() {
+  if (!recipesCoreReady()) return;
+  const recipe = createRecipeFromForm();
+  const validation = PanelCore.validateRecipe(recipe);
+  if (!validation.valid) {
+    setRecipesMessage(`Recipe invalid: ${validation.errors.join('; ')}`);
+    return;
+  }
+  const existingIndex = recipes.findIndex((item) => item.id === recipe.id);
+  if (existingIndex >= 0) recipes[existingIndex] = recipe;
+  else recipes.push(recipe);
+  activeRecipeId = recipe.id;
+  persistRecipesState();
+  setRecipesMessage('Recipe saved.');
+  renderRecipesBoard();
+}
+
+function deleteActiveRecipe() {
+  if (!activeRecipeId) {
+    setRecipesMessage('No recipe selected.');
+    return;
+  }
+  recipes = recipes.filter((recipe) => recipe.id !== activeRecipeId);
+  setRecipeForm(null);
+  persistRecipesState();
+  setRecipesMessage('Recipe deleted.');
+  renderRecipesBoard();
+}
+
+function exportRecipesToTextarea() {
+  if (!recipesCoreReady() || !recipesImportExportEl) return;
+  recipesImportExportEl.value = PanelCore.exportRecipes(recipes);
+  setRecipesMessage('Recipes exported.');
+}
+
+function importRecipesFromTextarea() {
+  if (!recipesCoreReady() || !recipesImportExportEl) return;
+  const imported = PanelCore.importRecipes(recipesImportExportEl.value);
+  if (!imported.valid) {
+    setRecipesMessage(`Import failed: ${imported.errors.join('; ')}`);
+    return;
+  }
+  recipes = imported.recipes;
+  activeRecipeId = null;
+  setRecipeForm(null);
+  persistRecipesState();
+  setRecipesMessage('Recipes imported.');
+  renderRecipesBoard();
+}
+
+function updateProjectMemory(nextMemory) {
+  projectMemory = recipesCoreReady() ? PanelCore.createProjectMemory(nextMemory) : nextMemory;
+  persistRecipesState();
+  renderRecipesBoard();
+}
+
+function addProjectMemoryEntry() {
+  if (!recipesCoreReady() || !projectMemoryEntryEl) return;
+  const bucket = currentMemoryBucket();
+  const value = projectMemoryEntryEl.value;
+  if (!String(value || '').trim()) {
+    setRecipesMessage('Memory entry is empty.');
+    return;
+  }
+  const nextMemory = { ...(projectMemory || createEmptyProjectMemory()) };
+  const entries = Array.isArray(nextMemory[bucket]) ? nextMemory[bucket].slice() : [];
+  const editIndex = Number(projectMemoryEntryEl.dataset.editingIndex);
+  if (Number.isInteger(editIndex) && editIndex >= 0 && editIndex < entries.length) entries[editIndex] = value;
+  else entries.push(value);
+  nextMemory[bucket] = entries;
+  projectMemoryEntryEl.value = '';
+  projectMemoryEntryEl.dataset.editingIndex = '';
+  updateProjectMemory(nextMemory);
+  setRecipesMessage('Project memory saved.');
+}
+
+function clearProjectMemoryBucket() {
+  const bucket = currentMemoryBucket();
+  const nextMemory = { ...(projectMemory || createEmptyProjectMemory()), [bucket]: [] };
+  if (projectMemoryEntryEl) {
+    projectMemoryEntryEl.value = '';
+    projectMemoryEntryEl.dataset.editingIndex = '';
+  }
+  updateProjectMemory(nextMemory);
+  setRecipesMessage('Project memory bucket cleared.');
+}
+
+function exportProjectMemoryToTextarea() {
+  if (!recipesCoreReady() || !projectMemoryImportExportEl) return;
+  projectMemoryImportExportEl.value = PanelCore.exportProjectMemory(projectMemory || createEmptyProjectMemory());
+  setRecipesMessage('Project memory exported.');
+}
+
+function importProjectMemoryFromTextarea() {
+  if (!recipesCoreReady() || !projectMemoryImportExportEl) return;
+  const imported = PanelCore.importProjectMemory(projectMemoryImportExportEl.value);
+  if (!imported.valid) {
+    setRecipesMessage(`Import failed: ${imported.errors.join('; ')}`);
+    return;
+  }
+  projectMemory = imported.memory;
+  persistRecipesState();
+  setRecipesMessage('Project memory imported.');
+  renderRecipesBoard();
+}
+
+function initRecipesBoard() {
+  if (!recipesCoreReady()) return;
+  loadRecipesState();
+  if (recipeSaveBtn) recipeSaveBtn.addEventListener('click', saveRecipeFromForm);
+  if (recipeDeleteBtn) recipeDeleteBtn.addEventListener('click', deleteActiveRecipe);
+  if (recipeClearBtn) recipeClearBtn.addEventListener('click', () => {
+    setRecipeForm(null);
+    setRecipesMessage('Recipe form cleared.');
+    renderRecipesBoard();
+  });
+  if (recipesExportBtn) recipesExportBtn.addEventListener('click', exportRecipesToTextarea);
+  if (recipesImportBtn) recipesImportBtn.addEventListener('click', importRecipesFromTextarea);
+  if (projectMemoryAddBtn) projectMemoryAddBtn.addEventListener('click', addProjectMemoryEntry);
+  if (projectMemoryClearBucketBtn) projectMemoryClearBucketBtn.addEventListener('click', clearProjectMemoryBucket);
+  if (projectMemoryExportBtn) projectMemoryExportBtn.addEventListener('click', exportProjectMemoryToTextarea);
+  if (projectMemoryImportBtn) projectMemoryImportBtn.addEventListener('click', importProjectMemoryFromTextarea);
+  if (projectMemoryBucketEl) projectMemoryBucketEl.addEventListener('change', renderProjectMemoryList);
+  renderRecipesBoard();
+}
+
 function evidenceTypeForAction(type) {
   if (type === 'console') return 'console';
   if (type === 'network') return 'network';
@@ -2007,6 +2508,23 @@ async function send(msg) {
   if (!content && !msg.isActionResult) return;
 
   if (!msg.isActionResult) {
+    const sendPreview = msg.sendPreview || buildSendPreview({
+      target: msg.sendPreviewTarget || 'chat',
+      content,
+      selectedEvidence: msg.selectedEvidence || [],
+      pageContext: { included: true },
+      bugBundle: msg.bugBundle || null,
+      testDraft: msg.testDraft || null,
+    });
+    if (msg.sendPreviewConfirmed) {
+      renderTrustSendPreview(sendPreview);
+    } else if (!confirmSendPreview(sendPreview)) {
+      addSystemMessage('Send cancelled.');
+      return;
+    }
+  }
+
+  if (!msg.isActionResult) {
     actionRoundCount = 0;
     addUserMessage(content);
     inputEl.value = '';
@@ -2046,6 +2564,7 @@ function buildChatPayload(msg) {
     content: msg.content || '',
     workflow,
     permissionMode: getSelectedPermissionMode(),
+    trustMode: getSelectedTrustMode(),
     maxActionRounds: getConfiguredMaxActionRounds(),
     pageContext: null,
     projectContext: workflow === 'frontend-loop' ? getProjectContextSync() : null,
@@ -3594,7 +4113,7 @@ function formatMessageText(text) {
     .replace(/\n/g, '<br>');
 }
 
-function actionPolicy(type, permissionMode = getSelectedPermissionMode()) {
+function actionPolicy(type, permissionMode = getSelectedTrustMode()) {
   if (PanelCore && typeof PanelCore.createTrustPolicy === 'function' && typeof PanelCore.canRunAction === 'function') {
     return PanelCore.canRunAction(PanelCore.createTrustPolicy(permissionMode), type).decision;
   }
@@ -3779,6 +4298,8 @@ initRecorderBoard();
 initVisualBoard();
 initPatchBoard();
 initTestsBoard();
+initTrustBoard();
+initRecipesBoard();
 initBridgeTokenControl();
 initActionRoundControl();
 applyLocale();

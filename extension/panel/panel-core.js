@@ -26,12 +26,29 @@
   const INTERACTION_ACTIONS = new Set(['click', 'input', 'press']);
   const STORAGE_READ_ACTIONS = new Set(['storage:list', 'storage:get']);
   const STORAGE_WRITE_ACTIONS = new Set(['storage:set', 'storage:remove']);
+  const TRUST_MODES = ['observe', 'debug', 'patch'];
   const EVIDENCE_TYPES = ['console', 'network', 'dom', 'action', 'project', 'file', 'verification', 'manual'];
   const EVIDENCE_SEVERITIES = ['info', 'warning', 'error'];
   const RECORDER_EVENT_TYPES = ['click', 'press', 'input', 'route', 'title', 'console', 'network', 'storage', 'action'];
   const PATCH_STATUSES = ['draft', 'preview', 'applied', 'verifying', 'verified', 'failed', 'rolled_back', 'rollback_failed'];
   const DOM_DIAGNOSTIC_RESULTS = ['visible', 'clickable', 'covered', 'clipped', 'disabled', 'pointer-blocked'];
   const SCREENSHOT_STATUSES = ['supported', 'unsupported', 'permission_required', 'failed'];
+  const MEMORY_BUCKETS = ['ignoredConsolePatterns', 'knownSelectors', 'commonFlows', 'apiContracts', 'qaChecklists'];
+  const RECIPE_MAX_ITEMS = 100;
+  const RECIPE_MAX_BYTES = 1024 * 1024;
+  const PROJECT_MEMORY_MAX_ITEMS = 500;
+  const PROJECT_MEMORY_MAX_BYTES = 1024 * 1024;
+  const TRUST_PERMISSION_MATRIX = [
+    { action: 'dom/text/title/url', observe: 'allow', debug: 'allow', patch: 'allow' },
+    { action: 'console/network', observe: 'allow', debug: 'allow', patch: 'allow' },
+    { action: 'click/input/press', observe: 'block', debug: 'allow', patch: 'allow' },
+    { action: 'eval', observe: 'block', debug: 'confirm', patch: 'confirm' },
+    { action: 'file:list/project:scan', observe: 'block', debug: 'allow', patch: 'allow' },
+    { action: 'file:read', observe: 'block', debug: 'confirm', patch: 'allow' },
+    { action: 'save/write', observe: 'block', debug: 'block', patch: 'allow' },
+    { action: 'storage:get/list', observe: 'block', debug: 'allow', patch: 'allow' },
+    { action: 'storage:set/remove', observe: 'block', debug: 'confirm', patch: 'confirm' },
+  ];
   const PATCH_TRANSITIONS = {
     draft: ['preview'],
     preview: ['applied', 'failed'],
@@ -365,6 +382,10 @@
     ].join(' | ');
   }
 
+  function getTrustPermissionMatrix() {
+    return TRUST_PERMISSION_MATRIX.map((row) => ({ ...row }));
+  }
+
   function createTrustPolicy(input = 'debug') {
     const options = typeof input === 'string' ? { mode: input } : { ...(input || {}) };
     const mode = options.mode || 'debug';
@@ -475,6 +496,74 @@
     }
 
     return decision('block', 'unknown action');
+  }
+
+  function createSendPreview(input = {}) {
+    const selectedEvidence = getSelectedEvidence(input.selectedEvidence || []);
+    const redactionEnabled = input.redactionEnabled !== false;
+    const evidenceSummary = summarizeSelectedEvidence(selectedEvidence);
+    const policy = createTrustPolicy(input.policy || input.trustPolicy || input.mode || 'debug');
+    const redactedContent = redactionEnabled ? redactSensitiveText(input.content || '') : String(input.content || '');
+    const redactedPageContext = redactionEnabled ? redactPayload(input.pageContext || {}) : (input.pageContext || {});
+    const redactedActionResults = redactionEnabled ? redactPayload(input.actionResults || null) : (input.actionResults || null);
+    const redactedBugBundle = redactionEnabled ? redactPayload(input.bugBundle || null) : (input.bugBundle || null);
+    const redactedTestDraft = redactionEnabled ? redactPayload(input.testDraft || null) : (input.testDraft || null);
+    const pageContextIncluded = Boolean(input.pageContext && Object.keys(input.pageContext).length);
+    const actionResultsIncluded = Array.isArray(input.actionResults) ? input.actionResults.length > 0 : Boolean(input.actionResults);
+    const bugBundleIncluded = Boolean(input.bugBundle);
+    const testDraftIncluded = Boolean(input.testDraft);
+    const tokenInput = {
+      content: redactedContent,
+      selectedEvidence,
+      pageContext: pageContextIncluded ? redactedPageContext : null,
+      actionResults: actionResultsIncluded ? redactedActionResults : null,
+      bugBundle: bugBundleIncluded ? redactedBugBundle : null,
+      testDraft: testDraftIncluded ? redactedTestDraft : null,
+    };
+    const blockedReason = pageContextIncluded && !policy.canSendPageContext
+      ? 'Current trust policy blocks sending page context.'
+      : '';
+
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      target: String(input.target || 'chat'),
+      mode: policy.mode,
+      evidenceCount: evidenceSummary.evidenceCount,
+      consoleCount: evidenceSummary.consoleCount,
+      networkCount: evidenceSummary.networkCount,
+      fileContentCount: evidenceSummary.fileContentCount,
+      pageContextIncluded,
+      actionResultsIncluded,
+      bugBundleIncluded,
+      testDraftIncluded,
+      estimatedTokens: Math.max(0, Math.floor(Number(input.estimatedTokens) || estimateValueTokens(tokenInput))),
+      redactionEnabled,
+      requireConfirmation: input.requireConfirmation !== undefined ? Boolean(input.requireConfirmation) : Boolean(policy.requireSendPreview),
+      blockedReason,
+      selectedEvidenceIds: selectedEvidence.map((item) => item.id).filter(Boolean),
+      redactedContent,
+    };
+  }
+
+  function formatSendPreviewSummary(previewInput = {}) {
+    const preview = previewInput.schemaVersion === SCHEMA_VERSION ? previewInput : createSendPreview(previewInput);
+    const lines = [
+      'About to send:',
+      `- Target: ${preview.target}`,
+      `- Mode: ${preview.mode}`,
+      `- Evidence: ${preview.evidenceCount}`,
+      `- Console: ${preview.consoleCount}`,
+      `- Network: ${preview.networkCount}`,
+      `- File content: ${preview.fileContentCount}`,
+      `- Page context: ${preview.pageContextIncluded ? 'included' : 'not included'}`,
+      `- Action results: ${preview.actionResultsIncluded ? 'included' : 'not included'}`,
+      `- Bug bundle: ${preview.bugBundleIncluded ? 'included' : 'not included'}`,
+      `- Test draft: ${preview.testDraftIncluded ? 'included' : 'not included'}`,
+      `- Estimated tokens: ${preview.estimatedTokens}`,
+      `- Redaction: ${preview.redactionEnabled ? 'enabled' : 'disabled'}`,
+    ];
+    if (preview.blockedReason) lines.push(`- Blocked: ${preview.blockedReason}`);
+    return lines.join('\n');
   }
 
   function estimateBytes(value) {
@@ -1183,9 +1272,152 @@
     };
   }
 
+  function splitTextList(value) {
+    if (Array.isArray(value)) return value;
+    return String(value || '').split(/[\n,]/);
+  }
+
+  function normalizeStringList(value, maxItemChars = 240) {
+    return uniqueStrings(splitTextList(value)
+      .map((item) => cleanRecorderText(redactSensitiveText(item), maxItemChars))
+      .filter(Boolean));
+  }
+
+  function normalizeRecipeEvidenceTypes(value) {
+    return normalizeStringList(value, 80).filter((type) => EVIDENCE_TYPES.includes(type));
+  }
+
+  function normalizeActionPlan(value) {
+    if (Array.isArray(value)) {
+      return uniqueStrings(value.map((item) => cleanRecorderText(redactSensitiveText(item), 500)).filter(Boolean));
+    }
+    return uniqueStrings(String(value || '')
+      .split(/\n/)
+      .map((item) => cleanRecorderText(redactSensitiveText(item), 500))
+      .filter(Boolean));
+  }
+
+  function createRecipe(input = {}) {
+    const createdAt = input.createdAt || new Date().toISOString();
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      id: input.id || createId('recipe'),
+      name: cleanRecorderText(redactSensitiveText(input.name || ''), 120),
+      description: cleanRecorderText(redactSensitiveText(input.description || ''), 500),
+      tags: normalizeStringList(input.tags, 80),
+      workflow: cleanRecorderText(input.workflow || '', 80),
+      promptTemplate: redactSensitiveText(String(input.promptTemplate || '')),
+      evidenceTypes: normalizeRecipeEvidenceTypes(input.evidenceTypes),
+      actionPlan: normalizeActionPlan(input.actionPlan),
+      createdAt,
+      updatedAt: input.updatedAt || createdAt,
+    };
+  }
+
+  function validateRecipe(input = {}, options = {}) {
+    const recipe = input && input.schemaVersion === SCHEMA_VERSION ? input : createRecipe(input);
+    const errors = [];
+    if (recipe.schemaVersion !== SCHEMA_VERSION) errors.push(`Unsupported recipe schemaVersion: ${recipe.schemaVersion}`);
+    if (!String(recipe.name || '').trim()) errors.push('Recipe name is required.');
+    if (!Array.isArray(recipe.tags)) errors.push('Recipe tags must be an array.');
+    if (!Array.isArray(recipe.evidenceTypes)) errors.push('Recipe evidenceTypes must be an array.');
+    if (!Array.isArray(recipe.actionPlan)) errors.push('Recipe actionPlan must be an array.');
+    const maxBytes = Math.max(1, Math.floor(Number(options.maxBytes) || RECIPE_MAX_BYTES));
+    if (estimateBytes(recipe) > maxBytes) errors.push(`Recipe exceeds maxBytes: ${maxBytes}`);
+    return { valid: errors.length === 0, errors, recipe };
+  }
+
+  function exportRecipes(recipes = []) {
+    return JSON.stringify({
+      schemaVersion: SCHEMA_VERSION,
+      exportedAt: new Date().toISOString(),
+      recipes: (Array.isArray(recipes) ? recipes : []).map(createRecipe),
+    }, null, 2);
+  }
+
+  function parseJsonObject(value, label) {
+    if (value && typeof value === 'object') return { data: value, errors: [] };
+    try {
+      return { data: JSON.parse(String(value || '')), errors: [] };
+    } catch (error) {
+      return { data: null, errors: [`Invalid JSON for ${label}: ${error.message}`] };
+    }
+  }
+
+  function importRecipes(value, options = {}) {
+    const parsed = parseJsonObject(value, 'recipes');
+    const errors = parsed.errors.slice();
+    const data = parsed.data;
+    if (!data) return { valid: false, errors, recipes: [] };
+    if (!Array.isArray(data) && data.schemaVersion !== SCHEMA_VERSION) {
+      errors.push(`Unsupported recipe export schemaVersion: ${data.schemaVersion}`);
+    }
+    const rawRecipes = Array.isArray(data) ? data : data.recipes;
+    if (!Array.isArray(rawRecipes)) errors.push('Recipes payload must contain a recipes array.');
+    const maxItems = Math.max(1, Math.floor(Number(options.maxItems) || RECIPE_MAX_ITEMS));
+    if (Array.isArray(rawRecipes) && rawRecipes.length > maxItems) errors.push(`Too many recipes: ${rawRecipes.length} > ${maxItems}`);
+    const recipes = Array.isArray(rawRecipes) ? rawRecipes.map(createRecipe) : [];
+    const maxBytes = Math.max(1, Math.floor(Number(options.maxBytes) || RECIPE_MAX_BYTES));
+    if (estimateBytes(recipes) > maxBytes) errors.push(`Recipes payload exceeds maxBytes: ${maxBytes}`);
+    recipes.forEach((recipe, index) => {
+      const validation = validateRecipe(recipe, options);
+      validation.errors.forEach((error) => errors.push(`recipes[${index}]: ${error}`));
+    });
+    return { valid: errors.length === 0, errors, recipes: errors.length ? [] : recipes };
+  }
+
+  function createProjectMemory(input = {}) {
+    const memory = { schemaVersion: SCHEMA_VERSION };
+    for (const bucket of MEMORY_BUCKETS) {
+      memory[bucket] = normalizeStringList(input[bucket] || [], 500);
+    }
+    return memory;
+  }
+
+  function validateProjectMemory(input = {}, options = {}) {
+    const memory = input && input.schemaVersion === SCHEMA_VERSION ? input : createProjectMemory(input);
+    const errors = [];
+    if (memory.schemaVersion !== SCHEMA_VERSION) errors.push(`Unsupported project memory schemaVersion: ${memory.schemaVersion}`);
+    let itemCount = 0;
+    for (const bucket of MEMORY_BUCKETS) {
+      if (!Array.isArray(memory[bucket])) errors.push(`Project memory bucket must be an array: ${bucket}`);
+      else itemCount += memory[bucket].length;
+    }
+    const maxItems = Math.max(1, Math.floor(Number(options.maxItems) || PROJECT_MEMORY_MAX_ITEMS));
+    if (itemCount > maxItems) errors.push(`Too many project memory items: ${itemCount} > ${maxItems}`);
+    const maxBytes = Math.max(1, Math.floor(Number(options.maxBytes) || PROJECT_MEMORY_MAX_BYTES));
+    if (estimateBytes(memory) > maxBytes) errors.push(`Project memory exceeds maxBytes: ${maxBytes}`);
+    return { valid: errors.length === 0, errors, memory };
+  }
+
+  function exportProjectMemory(memory = {}) {
+    return JSON.stringify({
+      schemaVersion: SCHEMA_VERSION,
+      exportedAt: new Date().toISOString(),
+      memory: createProjectMemory(memory),
+    }, null, 2);
+  }
+
+  function importProjectMemory(value, options = {}) {
+    const parsed = parseJsonObject(value, 'project memory');
+    const errors = parsed.errors.slice();
+    const data = parsed.data;
+    if (!data) return { valid: false, errors, memory: createProjectMemory() };
+    if (data.schemaVersion !== SCHEMA_VERSION) {
+      errors.push(`Unsupported project memory schemaVersion: ${data.schemaVersion}`);
+    }
+    const rawMemory = data.memory && typeof data.memory === 'object' ? data.memory : data;
+    const memory = createProjectMemory(rawMemory);
+    const validation = validateProjectMemory(memory, options);
+    errors.push(...validation.errors);
+    return { valid: errors.length === 0, errors, memory: errors.length ? createProjectMemory() : memory };
+  }
+
   return {
     SCHEMA_VERSION,
+    TRUST_MODES,
     EVIDENCE_TYPES,
+    MEMORY_BUCKETS,
     RECORDER_EVENT_TYPES,
     PATCH_STATUSES,
     DOM_DIAGNOSTIC_RESULTS,
@@ -1202,6 +1434,9 @@
     estimateValueTokens,
     createTrustPolicy,
     canRunAction,
+    getTrustPermissionMatrix,
+    createSendPreview,
+    formatSendPreviewSummary,
     createStore,
     enforceStorageBudget,
     filterEvidenceItems,
@@ -1231,5 +1466,13 @@
     classifyDomDiagnostic,
     createDomDiagnosticPayload,
     createDomDiagnosticEvidence,
+    createRecipe,
+    validateRecipe,
+    exportRecipes,
+    importRecipes,
+    createProjectMemory,
+    validateProjectMemory,
+    exportProjectMemory,
+    importProjectMemory,
   };
 });

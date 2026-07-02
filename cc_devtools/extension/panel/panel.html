@@ -293,8 +293,132 @@
         </div>
       </div>
     </section>
-    <section class="workbench-panel" data-workbench-panel="trust" hidden></section>
-    <section class="workbench-panel" data-workbench-panel="recipes" hidden></section>
+    <section class="workbench-panel trust-page" data-workbench-panel="trust" hidden>
+      <div id="trust-board">
+        <div class="trust-toolbar">
+          <label>
+            <span>Trust mode</span>
+            <select id="trust-mode-select">
+              <option value="observe">Observe Only</option>
+              <option value="debug" selected>Debug Safe</option>
+              <option value="patch">Patch Sandbox</option>
+            </select>
+          </label>
+          <div class="trust-stat">
+            <span>Policy</span>
+            <strong id="trust-policy-summary">Debug Safe</strong>
+          </div>
+        </div>
+        <div class="trust-content">
+          <section class="trust-detail" aria-label="Trust permission matrix">
+            <h2>Permission matrix</h2>
+            <div id="trust-permission-matrix"></div>
+          </section>
+          <section class="trust-detail" aria-label="Latest send preview">
+            <h2>Latest send preview</h2>
+            <pre id="trust-send-preview">No send preview yet.</pre>
+          </section>
+        </div>
+      </div>
+    </section>
+    <section class="workbench-panel recipes-page" data-workbench-panel="recipes" hidden>
+      <div id="recipes-board">
+        <div class="recipes-toolbar">
+          <div class="recipes-stat">
+            <span>Recipes</span>
+            <strong id="recipes-count">0 recipes</strong>
+          </div>
+          <div class="recipes-stat">
+            <span>Project memory</span>
+            <strong id="project-memory-count">0 memory items</strong>
+          </div>
+        </div>
+        <div class="recipes-content">
+          <section class="recipes-column" aria-label="Recipes">
+            <div class="recipes-column-header">
+              <h2>Recipes</h2>
+              <div class="recipes-actions">
+                <button id="recipe-save-btn" type="button">Save recipe</button>
+                <button id="recipe-delete-btn" type="button">Delete</button>
+                <button id="recipe-clear-btn" type="button">Clear form</button>
+              </div>
+            </div>
+            <div class="recipe-form">
+              <label>
+                <span>Name</span>
+                <input id="recipe-name" type="text" autocomplete="off">
+              </label>
+              <label>
+                <span>Description</span>
+                <input id="recipe-description" type="text" autocomplete="off">
+              </label>
+              <label>
+                <span>Tags</span>
+                <input id="recipe-tags" type="text" autocomplete="off" placeholder="qa, login">
+              </label>
+              <label>
+                <span>Workflow</span>
+                <input id="recipe-workflow" type="text" autocomplete="off" placeholder="qa">
+              </label>
+              <label>
+                <span>Evidence types</span>
+                <input id="recipe-evidence-types" type="text" autocomplete="off" placeholder="console, network">
+              </label>
+              <label class="recipe-text-control">
+                <span>Prompt template</span>
+                <textarea id="recipe-prompt-template" rows="4" spellcheck="false"></textarea>
+              </label>
+              <label class="recipe-text-control">
+                <span>Action plan</span>
+                <textarea id="recipe-action-plan" rows="4" spellcheck="false"></textarea>
+              </label>
+            </div>
+            <div id="recipes-list" aria-label="Recipe list"></div>
+            <div class="recipes-io">
+              <textarea id="recipes-import-export" rows="6" spellcheck="false" placeholder="Recipe JSON import/export"></textarea>
+              <div class="recipes-actions">
+                <button id="recipes-export-btn" type="button">Export recipes</button>
+                <button id="recipes-import-btn" type="button">Import recipes</button>
+              </div>
+            </div>
+          </section>
+          <section class="recipes-column" aria-label="Project memory">
+            <div class="recipes-column-header">
+              <h2>Project Memory</h2>
+              <div class="recipes-actions">
+                <button id="project-memory-add-btn" type="button">Add memory</button>
+                <button id="project-memory-clear-bucket-btn" type="button">Clear bucket</button>
+              </div>
+            </div>
+            <div class="project-memory-form">
+              <label>
+                <span>Bucket</span>
+                <select id="project-memory-bucket">
+                  <option value="ignoredConsolePatterns">Ignored console patterns</option>
+                  <option value="knownSelectors" selected>Known selectors</option>
+                  <option value="commonFlows">Common flows</option>
+                  <option value="apiContracts">API contracts</option>
+                  <option value="qaChecklists">QA checklists</option>
+                </select>
+              </label>
+              <label class="recipe-text-control">
+                <span>Entry</span>
+                <textarea id="project-memory-entry" rows="4" spellcheck="false"></textarea>
+              </label>
+            </div>
+            <div id="project-memory-list" aria-label="Project memory list"></div>
+            <div class="recipes-io">
+              <textarea id="project-memory-import-export" rows="6" spellcheck="false" placeholder="Project memory JSON import/export"></textarea>
+              <div class="recipes-actions">
+                <button id="project-memory-export-btn" type="button">Export memory</button>
+                <button id="project-memory-import-btn" type="button">Import memory</button>
+              </div>
+            </div>
+          </section>
+        </div>
+        <div id="recipes-message" role="status"></div>
+      </div>
+    </section>
   </main>
 </div>
 <script src="panel-core.js"></script>
