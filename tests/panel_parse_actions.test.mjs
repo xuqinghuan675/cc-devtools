@@ -155,6 +155,32 @@ test('executeActions attaches verification evidence to action results', async ()
   assert.match(result, /button Send/);
 });
 
+test('executeActions records flight-recorder events without breaking the action result loop', async () => {
+  const context = loadPanelContext();
+  const evidenceSnapshots = [
+    { url: 'http://localhost/form', title: 'Before', textSample: 'idle', active: 'body' },
+    { url: 'http://localhost/done', title: 'Done', textSample: 'saved', active: 'button.save' },
+  ];
+  const storageSnapshots = [
+    { localStorage: ['draft'], sessionStorage: [], cookie: [] },
+    { localStorage: ['draft', 'saved'], sessionStorage: [], cookie: [] },
+  ];
+  context.collectActionEvidence = async () => evidenceSnapshots.shift();
+  context.collectStorageKeySnapshot = async () => storageSnapshots.shift();
+  context.executeAction = async () => 'Clicked: button.save';
+
+  await context.executeActions([{ type: 'click', code: 'button.save', placeholder: 'missing' }]);
+
+  assert.equal(context.__sentMessages.length, 1);
+  assert.match(Object.values(context.__sentMessages[0].actionResults)[0], /Clicked: button\.save/);
+
+  const events = context.getRecorderEvents();
+  assert.ok(events.some((event) => event.type === 'click' && event.selector === 'button.save' && event.evidenceId));
+  assert.ok(events.some((event) => event.type === 'route' && event.from === 'http://localhost/form' && event.to === 'http://localhost/done'));
+  assert.ok(events.some((event) => event.type === 'title' && event.from === 'Before' && event.to === 'Done'));
+  assert.ok(events.some((event) => event.type === 'storage' && event.storageChanges.localStorage.added.includes('saved')));
+});
+
 test('executeInput script uses native value setters and avoids innerHTML injection', () => {
   const context = loadPanelContext();
   context.executeInspectedWindowEval = (code) => code;

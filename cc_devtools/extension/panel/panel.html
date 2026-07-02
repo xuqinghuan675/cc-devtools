@@ -79,12 +79,129 @@
       <div class="help-item"><code>[ACTION:save]path\ncontent[/ACTION]</code><span>Write a local file to disk</span></div>
     </div>
   </div>
-  <div id="messages"></div>
-  <div id="input-container">
-    <textarea id="input" rows="2" placeholder="Ask the agent to inspect, patch, click, or verify..."></textarea>
-    <button id="send-btn">Send</button>
-  </div>
+  <nav id="workbench-tabs" aria-label="Workbench pages">
+    <button type="button" class="workbench-tab active" data-workbench-tab="chat" aria-selected="true">Chat</button>
+    <button type="button" class="workbench-tab" data-workbench-tab="evidence" aria-selected="false">Evidence</button>
+    <button type="button" class="workbench-tab" data-workbench-tab="recorder" aria-selected="false">Recorder</button>
+    <button type="button" class="workbench-tab" data-workbench-tab="patch" aria-selected="false">Patch</button>
+    <button type="button" class="workbench-tab" data-workbench-tab="tests" aria-selected="false">Tests</button>
+    <button type="button" class="workbench-tab" data-workbench-tab="trust" aria-selected="false">Trust</button>
+    <button type="button" class="workbench-tab" data-workbench-tab="recipes" aria-selected="false">Recipes</button>
+  </nav>
+  <main id="workbench-pages">
+    <section class="workbench-panel active" data-workbench-panel="chat">
+      <div id="messages"></div>
+      <div id="input-container">
+        <textarea id="input" rows="2" placeholder="Ask the agent to inspect, patch, click, or verify..."></textarea>
+        <button id="send-btn">Send</button>
+      </div>
+    </section>
+    <section class="workbench-panel evidence-page" data-workbench-panel="evidence" hidden>
+      <div id="evidence-board">
+        <div class="evidence-toolbar">
+          <label>
+            <span>Type</span>
+            <select id="evidence-type-filter">
+              <option value="all">All</option>
+              <option value="console">Console</option>
+              <option value="network">Network</option>
+              <option value="dom">DOM</option>
+              <option value="action">Action</option>
+              <option value="project">Project</option>
+              <option value="file">File</option>
+              <option value="verification">Verification</option>
+              <option value="manual">Manual</option>
+            </select>
+          </label>
+          <label class="evidence-search-control">
+            <span>Search</span>
+            <input id="evidence-search" type="search" placeholder="Filter evidence">
+          </label>
+        </div>
+        <div class="evidence-content">
+          <div id="evidence-list" aria-label="Evidence list"></div>
+          <aside id="evidence-detail" aria-label="Evidence detail">
+            <h2 id="evidence-detail-title">No evidence selected</h2>
+            <div id="evidence-detail-meta"></div>
+            <p id="evidence-detail-summary"></p>
+            <pre id="evidence-detail-payload"></pre>
+          </aside>
+        </div>
+        <div class="evidence-actions">
+          <span id="evidence-send-summary">Evidence: 0</span>
+          <button id="evidence-send-selected-btn" type="button">Send selected</button>
+          <button id="evidence-copy-selected-btn" type="button">Copy selected</button>
+          <button id="evidence-clear-btn" type="button">Clear</button>
+        </div>
+      </div>
+    </section>
+    <section class="workbench-panel recorder-page" data-workbench-panel="recorder" hidden>
+      <div id="recorder-board">
+        <div class="recorder-toolbar">
+          <div class="recorder-stat">
+            <span>Status</span>
+            <strong id="recorder-status">recording</strong>
+          </div>
+          <div class="recorder-stat">
+            <span>Events</span>
+            <strong id="recorder-event-count">0 events</strong>
+          </div>
+          <div class="recorder-stat">
+            <span>Bytes</span>
+            <strong id="recorder-byte-estimate">0 B</strong>
+          </div>
+          <div class="recorder-stat">
+            <span>Window</span>
+            <strong id="recorder-time-window">2 min</strong>
+          </div>
+          <div class="recorder-toolbar-actions">
+            <button id="recorder-pause-btn" type="button">Pause</button>
+            <button id="recorder-resume-btn" type="button">Resume</button>
+            <button id="recorder-pack-btn" type="button">Pack bug bundle</button>
+          </div>
+        </div>
+        <div class="recorder-content">
+          <div id="recorder-event-list" aria-label="Recorder event list"></div>
+          <aside id="recorder-bundle-panel" aria-label="BugBundle preview">
+            <h2>BugBundle preview</h2>
+            <pre id="recorder-bundle-preview"></pre>
+          </aside>
+        </div>
+        <div class="recorder-actions">
+          <button id="recorder-copy-btn" type="button">Copy bug bundle</button>
+          <button id="recorder-clear-btn" type="button">Clear</button>
+        </div>
+      </div>
+    </section>
+    <section class="workbench-panel" data-workbench-panel="patch" hidden></section>
+    <section class="workbench-panel tests-page" data-workbench-panel="tests" hidden>
+      <div id="tests-board">
+        <div class="tests-toolbar">
+          <div>
+            <span class="tests-label">Source</span>
+            <strong id="tests-source-summary">Selected evidence: 0</strong>
+          </div>
+          <div class="tests-toolbar-actions">
+            <button id="tests-generate-btn" type="button">Generate draft</button>
+            <button id="tests-copy-btn" type="button">Copy draft</button>
+            <button id="tests-clear-btn" type="button">Clear</button>
+          </div>
+        </div>
+        <div class="tests-content">
+          <div id="tests-selector-confidence" aria-label="Selector confidence"></div>
+          <aside id="tests-draft-panel" aria-label="Generated Playwright draft">
+            <h2>GeneratedTestDraft</h2>
+            <pre id="tests-draft-preview"></pre>
+          </aside>
+        </div>
+      </div>
+    </section>
+    <section class="workbench-panel" data-workbench-panel="trust" hidden></section>
+    <section class="workbench-panel" data-workbench-panel="recipes" hidden></section>
+  </main>
 </div>
+<script src="panel-core.js"></script>
+<script src="panel-views.js"></script>
 <script src="panel.js"></script>
 </body>
 </html>

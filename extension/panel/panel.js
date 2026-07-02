@@ -13,6 +13,9 @@ const EVIDENCE_ACTIONS = new Set(['eval', 'click', 'input', 'press', 'storage:se
 const DEFAULT_ACTION_RESULT_MAX_CHARS = 12000;
 const DEFAULT_FILE_READ_LIMIT = 20000;
 const MAX_NETWORK_REQUESTS = 200;
+const RECORDER_DRAIN_INTERVAL_MS = 1000;
+const PanelCore = (typeof globalThis !== 'undefined' && globalThis.CCDevtoolsPanelCore) || {};
+const PanelViews = (typeof globalThis !== 'undefined' && globalThis.CCDevtoolsPanelViews) || {};
 
 let ws = null;
 let reconnectTimer = null;
@@ -26,6 +29,9 @@ let networkRequests = [];
 let nextNetworkRequestId = 1;
 let pickPollTimer = null;
 let conversationTokenCount = 0;
+let recorderDrainTimer = null;
+let recorderInjected = false;
+let activeBugBundle = null;
 
 const $ = (s) => document.querySelector(s);
 const messagesEl = $('#messages');
@@ -44,6 +50,42 @@ const permissionModeSelectEl = $('#permission-mode-select');
 const maxActionRoundsEl = $('#max-action-rounds');
 const bridgeTokenEl = $('#bridge-token');
 const saveTokenBtn = $('#save-token-btn');
+const workbenchTabEls = queryAll('[data-workbench-tab]');
+const workbenchPanelEls = queryAll('[data-workbench-panel]');
+const evidenceTypeFilterEl = $('#evidence-type-filter');
+const evidenceSearchEl = $('#evidence-search');
+const evidenceListEl = $('#evidence-list');
+const evidenceDetailEl = $('#evidence-detail');
+const evidenceDetailTitleEl = $('#evidence-detail-title');
+const evidenceDetailMetaEl = $('#evidence-detail-meta');
+const evidenceDetailSummaryEl = $('#evidence-detail-summary');
+const evidenceDetailPayloadEl = $('#evidence-detail-payload');
+const evidenceSendSummaryEl = $('#evidence-send-summary');
+const evidenceSendSelectedBtn = $('#evidence-send-selected-btn');
+const evidenceCopySelectedBtn = $('#evidence-copy-selected-btn');
+const evidenceClearBtn = $('#evidence-clear-btn');
+const recorderStatusEl = $('#recorder-status');
+const recorderEventCountEl = $('#recorder-event-count');
+const recorderByteEstimateEl = $('#recorder-byte-estimate');
+const recorderTimeWindowEl = $('#recorder-time-window');
+const recorderEventListEl = $('#recorder-event-list');
+const recorderBundlePreviewEl = $('#recorder-bundle-preview');
+const recorderPauseBtn = $('#recorder-pause-btn');
+const recorderResumeBtn = $('#recorder-resume-btn');
+const recorderPackBtn = $('#recorder-pack-btn');
+const recorderCopyBtn = $('#recorder-copy-btn');
+const recorderClearBtn = $('#recorder-clear-btn');
+const testsSourceSummaryEl = $('#tests-source-summary');
+const testsSelectorConfidenceEl = $('#tests-selector-confidence');
+const testsDraftPreviewEl = $('#tests-draft-preview');
+const testsGenerateBtn = $('#tests-generate-btn');
+const testsCopyBtn = $('#tests-copy-btn');
+const testsClearBtn = $('#tests-clear-btn');
+let activeWorkbenchTab = 'chat';
+let activeEvidenceId = null;
+let activeGeneratedTestDraft = null;
+const evidenceStore = createEvidenceStore();
+const recorderStore = createRecorderStore();
 
 const UI_TEXT = {
   en: {
@@ -254,6 +296,971 @@ function applyLocale() {
   if (statusEl && statusEl.textContent === 'Disconnected') {
     statusEl.textContent = t('statusDisconnected');
   }
+}
+
+function queryAll(selector) {
+  if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return [];
+  return Array.from(document.querySelectorAll(selector));
+}
+
+function readDataValue(element, keys) {
+  if (!element) return '';
+  for (const key of keys) {
+    if (element.dataset && element.dataset[key]) return element.dataset[key];
+  }
+  const attributes = {
+    workbenchTab: 'data-workbench-tab',
+    workbenchPanel: 'data-workbench-panel',
+    tab: 'data-tab',
+    tabPanel: 'data-tab-panel',
+  };
+  if (typeof element.getAttribute === 'function') {
+    for (const key of keys) {
+      const value = element.getAttribute(attributes[key] || key);
+      if (value) return value;
+    }
+  }
+  return '';
+}
+
+function getWorkbenchTabIds() {
+  if (PanelViews && typeof PanelViews.getWorkbenchTabs === 'function') {
+    return PanelViews.getWorkbenchTabs().map((tab) => tab.id);
+  }
+  return ['chat', 'evidence', 'recorder', 'patch', 'tests', 'trust', 'recipes'];
+}
+
+function setActiveState(element, active) {
+  if (!element) return;
+  if (element.classList) element.classList.toggle('active', active);
+  if (typeof element.setAttribute === 'function') {
+    element.setAttribute('aria-selected', active ? 'true' : 'false');
+  } else {
+    element['aria-selected'] = active ? 'true' : 'false';
+  }
+}
+
+function activateWorkbenchTab(tabId) {
+  const availableTabs = getWorkbenchTabIds();
+  const nextTab = availableTabs.includes(tabId) ? tabId : 'chat';
+  activeWorkbenchTab = nextTab;
+
+  workbenchTabEls.forEach((tab) => {
+    const isActive = readDataValue(tab, ['workbenchTab', 'tab']) === nextTab;
+    setActiveState(tab, isActive);
+  });
+
+  workbenchPanelEls.forEach((panel) => {
+    const isActive = readDataValue(panel, ['workbenchPanel', 'tabPanel']) === nextTab;
+    panel.hidden = !isActive;
+    if (panel.classList) panel.classList.toggle('active', isActive);
+  });
+
+  if (nextTab === 'evidence') renderEvidenceBoard();
+  if (nextTab === 'recorder') renderRecorderBoard();
+  if (nextTab === 'tests') renderTestsBoard();
+
+  return activeWorkbenchTab;
+}
+
+function initWorkbenchTabs() {
+  if (workbenchTabEls.length === 0 || workbenchPanelEls.length === 0) return;
+  workbenchTabEls.forEach((tab) => {
+    if (typeof tab.addEventListener !== 'function') return;
+    tab.addEventListener('click', () => {
+      activateWorkbenchTab(readDataValue(tab, ['workbenchTab', 'tab']));
+    });
+  });
+  activateWorkbenchTab(activeWorkbenchTab);
+}
+
+function createEvidenceStore() {
+  if (PanelCore && typeof PanelCore.createStore === 'function') {
+    return PanelCore.createStore({ maxItems: 300, maxBytes: 1024 * 1024 });
+  }
+  let items = [];
+  return {
+    add(item) {
+      items.push(item);
+      return item;
+    },
+    clear() {
+      items = [];
+    },
+    list() {
+      return items.slice();
+    },
+  };
+}
+
+function createEvidence(input) {
+  if (PanelCore && typeof PanelCore.createEvidenceItem === 'function') {
+    return PanelCore.createEvidenceItem(input);
+  }
+  return {
+    schemaVersion: 1,
+    id: input.id || `ev_${Date.now()}`,
+    createdAt: input.createdAt || new Date().toISOString(),
+    type: input.type || 'manual',
+    severity: input.severity || 'info',
+    source: input.source || input.type || 'manual',
+    title: input.title || '',
+    summary: input.summary || '',
+    payload: input.payload || {},
+    redacted: true,
+    selected: Boolean(input.selected),
+    tags: Array.isArray(input.tags) ? input.tags : [],
+  };
+}
+
+function addEvidenceItem(input) {
+  const item = createEvidence(input || {});
+  evidenceStore.add(item);
+  if (!activeEvidenceId) activeEvidenceId = item.id;
+  renderEvidenceBoard();
+  return item;
+}
+
+function getEvidenceItems() {
+  return evidenceStore.list();
+}
+
+function getEvidenceFilters() {
+  return {
+    type: evidenceTypeFilterEl && evidenceTypeFilterEl.value ? evidenceTypeFilterEl.value : 'all',
+    query: evidenceSearchEl && evidenceSearchEl.value ? evidenceSearchEl.value : '',
+  };
+}
+
+function filteredEvidenceItems() {
+  const items = getEvidenceItems();
+  if (PanelCore && typeof PanelCore.filterEvidenceItems === 'function') {
+    return PanelCore.filterEvidenceItems(items, getEvidenceFilters());
+  }
+  return items;
+}
+
+function getSelectedEvidenceItems() {
+  const items = getEvidenceItems();
+  if (PanelCore && typeof PanelCore.getSelectedEvidence === 'function') {
+    return PanelCore.getSelectedEvidence(items);
+  }
+  return items.filter((item) => item.selected);
+}
+
+function evidencePayloadText(payload) {
+  if (payload === null || payload === undefined) return '';
+  if (typeof payload === 'string') return payload;
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return String(payload);
+  }
+}
+
+function summarizeEvidenceItems(items) {
+  if (PanelCore && typeof PanelCore.summarizeSelectedEvidence === 'function') {
+    return PanelCore.summarizeSelectedEvidence(items);
+  }
+  return {
+    evidenceCount: items.length,
+    consoleCount: 0,
+    networkCount: 0,
+    fileContentCount: 0,
+    estimatedTokens: 0,
+    redactionEnabled: true,
+  };
+}
+
+function formatEvidenceSummary(summary) {
+  if (PanelCore && typeof PanelCore.formatEvidenceSendSummary === 'function') {
+    return PanelCore.formatEvidenceSendSummary(summary);
+  }
+  return `Evidence: ${summary.evidenceCount}`;
+}
+
+function selectedEvidenceMessage(items) {
+  if (PanelCore && typeof PanelCore.buildSelectedEvidenceMessage === 'function') {
+    return PanelCore.buildSelectedEvidenceMessage(items);
+  }
+  return [
+    'Use only the selected evidence below unless you need to ask for more.',
+    '',
+    '## Selected Evidence',
+    '',
+    items.map((item) => `${item.type}: ${item.title}\n${item.summary}`).join('\n\n'),
+  ].join('\n');
+}
+
+function updateEvidenceSendSummary(items = getSelectedEvidenceItems()) {
+  if (!evidenceSendSummaryEl) return null;
+  const summary = summarizeEvidenceItems(items);
+  const text = formatEvidenceSummary(summary);
+  evidenceSendSummaryEl.textContent = text;
+  return { summary, text };
+}
+
+function renderEvidenceBoard() {
+  if (!evidenceListEl) return;
+  const items = filteredEvidenceItems();
+  const selectedItems = getSelectedEvidenceItems();
+  updateEvidenceSendSummary(selectedItems);
+  renderEvidenceList(items);
+  const activeItem = items.find((item) => item.id === activeEvidenceId) || items[0] || null;
+  renderEvidenceDetail(activeItem);
+}
+
+function renderEvidenceList(items) {
+  if (!evidenceListEl) return;
+  const rows = items.map((item) => createEvidenceRow(item));
+  if (typeof evidenceListEl.replaceChildren === 'function') {
+    evidenceListEl.replaceChildren(...rows);
+  } else {
+    evidenceListEl.textContent = '';
+    rows.forEach((row) => evidenceListEl.appendChild(row));
+  }
+}
+
+function createEvidenceRow(item) {
+  const row = document.createElement('div');
+  row.className = 'evidence-row';
+  if (row.dataset) {
+    row.dataset.evidenceId = item.id;
+  } else if (typeof row.setAttribute === 'function') {
+    row.setAttribute('data-evidence-id', item.id);
+  }
+  row.tabIndex = 0;
+  if (typeof row.setAttribute === 'function') row.setAttribute('role', 'button');
+  if (item.id === activeEvidenceId && row.classList) row.classList.add('active');
+
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.checked = Boolean(item.selected);
+  checkbox.title = 'Select evidence';
+  checkbox.addEventListener('click', (event) => {
+    if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+    setEvidenceSelected(item.id, checkbox.checked);
+  });
+
+  const main = document.createElement('div');
+  main.className = 'evidence-row-main';
+  const title = document.createElement('div');
+  title.className = 'evidence-row-title';
+  title.textContent = item.title || '(untitled evidence)';
+  const meta = document.createElement('div');
+  meta.className = 'evidence-row-meta';
+  meta.textContent = `${item.type} | ${item.severity} | ${item.source || item.type}`;
+  const summary = document.createElement('div');
+  summary.className = 'evidence-row-summary';
+  summary.textContent = item.summary || '';
+
+  main.appendChild(title);
+  main.appendChild(meta);
+  main.appendChild(summary);
+  row.appendChild(checkbox);
+  row.appendChild(main);
+  row.addEventListener('click', () => selectEvidenceItem(item.id));
+  row.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      selectEvidenceItem(item.id);
+    }
+  });
+  return row;
+}
+
+function renderEvidenceDetail(item) {
+  if (!evidenceDetailEl) return;
+  if (!item) {
+    if (evidenceDetailTitleEl) evidenceDetailTitleEl.textContent = 'No evidence selected';
+    if (evidenceDetailMetaEl) evidenceDetailMetaEl.textContent = '';
+    if (evidenceDetailSummaryEl) evidenceDetailSummaryEl.textContent = '';
+    if (evidenceDetailPayloadEl) evidenceDetailPayloadEl.textContent = '';
+    return;
+  }
+
+  activeEvidenceId = item.id;
+  if (evidenceDetailTitleEl) evidenceDetailTitleEl.textContent = item.title || '(untitled evidence)';
+  if (evidenceDetailMetaEl) {
+    evidenceDetailMetaEl.textContent = [
+      item.id,
+      item.type,
+      item.severity,
+      item.source || item.type,
+      item.createdAt,
+    ].filter(Boolean).join(' | ');
+  }
+  if (evidenceDetailSummaryEl) evidenceDetailSummaryEl.textContent = item.summary || '';
+  if (evidenceDetailPayloadEl) evidenceDetailPayloadEl.textContent = evidencePayloadText(item.payload);
+}
+
+function selectEvidenceItem(id) {
+  const item = getEvidenceItems().find((entry) => entry.id === id);
+  if (!item) return null;
+  activeEvidenceId = item.id;
+  renderEvidenceBoard();
+  return item;
+}
+
+function setEvidenceSelected(id, selected) {
+  const item = getEvidenceItems().find((entry) => entry.id === id);
+  if (!item) return null;
+  item.selected = Boolean(selected);
+  renderEvidenceBoard();
+  return item;
+}
+
+async function copySelectedEvidence() {
+  const selected = getSelectedEvidenceItems();
+  updateEvidenceSendSummary(selected);
+  if (selected.length === 0) {
+    addSystemMessage('No selected evidence to copy.');
+    return '';
+  }
+  const content = selectedEvidenceMessage(selected);
+  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    await navigator.clipboard.writeText(content);
+    addSystemMessage(t('copied'));
+  }
+  return content;
+}
+
+function confirmEvidenceSend(summaryText) {
+  const message = `Send selected evidence?\n\n${summaryText}`;
+  if (typeof confirm === 'function') return confirm(message);
+  if (typeof window !== 'undefined' && typeof window.confirm === 'function') return window.confirm(message);
+  return false;
+}
+
+async function sendSelectedEvidence() {
+  const selected = getSelectedEvidenceItems();
+  const preview = updateEvidenceSendSummary(selected);
+  if (selected.length === 0) {
+    addSystemMessage('No selected evidence to send.');
+    return;
+  }
+  if (!confirmEvidenceSend(preview ? preview.text : formatEvidenceSummary(summarizeEvidenceItems(selected)))) {
+    addSystemMessage('Evidence send cancelled.');
+    return;
+  }
+  await send({ content: selectedEvidenceMessage(selected) });
+}
+
+function clearEvidence() {
+  evidenceStore.clear();
+  activeEvidenceId = null;
+  renderEvidenceBoard();
+}
+
+function initEvidenceBoard() {
+  if (evidenceTypeFilterEl) evidenceTypeFilterEl.addEventListener('change', renderEvidenceBoard);
+  if (evidenceSearchEl) evidenceSearchEl.addEventListener('input', renderEvidenceBoard);
+  if (evidenceSendSelectedBtn) evidenceSendSelectedBtn.addEventListener('click', sendSelectedEvidence);
+  if (evidenceCopySelectedBtn) evidenceCopySelectedBtn.addEventListener('click', copySelectedEvidence);
+  if (evidenceClearBtn) evidenceClearBtn.addEventListener('click', clearEvidence);
+  renderEvidenceBoard();
+}
+
+function createRecorderStore() {
+  if (PanelCore && typeof PanelCore.createRecorderStore === 'function') {
+    return PanelCore.createRecorderStore({ maxItems: 300, maxBytes: 1024 * 1024, windowMs: 120000 });
+  }
+  let items = [];
+  let status = 'recording';
+  return {
+    add(item) {
+      if (status !== 'recording') return null;
+      const event = createRecorderEvent(item);
+      items.push(event);
+      if (items.length > 300) items.shift();
+      return event;
+    },
+    clear() {
+      items = [];
+    },
+    list() {
+      return items.slice();
+    },
+    status() {
+      return status;
+    },
+    pause() {
+      status = 'paused';
+    },
+    resume() {
+      status = 'recording';
+    },
+    stop() {
+      status = 'stopped';
+    },
+    stats() {
+      return {
+        status,
+        count: items.length,
+        byteEstimate: JSON.stringify(items).length,
+        windowMs: 120000,
+        timeRange: {
+          start: items[0] ? items[0].createdAt : '',
+          end: items[items.length - 1] ? items[items.length - 1].createdAt : '',
+        },
+      };
+    },
+  };
+}
+
+function createRecorderEvent(input) {
+  if (PanelCore && typeof PanelCore.createRecorderEvent === 'function') {
+    return PanelCore.createRecorderEvent(input || {});
+  }
+  const value = input || {};
+  return {
+    schemaVersion: 1,
+    id: value.id || `rec_${Date.now()}`,
+    createdAt: value.createdAt || new Date().toISOString(),
+    type: value.type || 'action',
+    selector: value.selector,
+    summary: value.summary,
+    evidenceId: value.evidenceId,
+    key: value.key,
+    from: value.from,
+    to: value.to,
+    pageUrl: value.pageUrl,
+    pageTitle: value.pageTitle,
+    valueSummary: value.valueSummary,
+    storageChanges: value.storageChanges,
+  };
+}
+
+function formatRecorderEventSummary(event) {
+  if (PanelCore && typeof PanelCore.formatRecorderEventSummary === 'function') {
+    return PanelCore.formatRecorderEventSummary(event);
+  }
+  return event.summary || [event.type, event.selector || event.evidenceId || ''].filter(Boolean).join(' ');
+}
+
+function getRecorderEvents() {
+  return recorderStore.list();
+}
+
+function isRecorderRecording() {
+  return recorderStore && typeof recorderStore.status === 'function' && recorderStore.status() === 'recording';
+}
+
+function addRecorderEvent(input) {
+  if (!recorderStore || !isRecorderRecording()) return null;
+  const event = recorderStore.add(createRecorderEvent(input || {}));
+  if (event) renderRecorderBoard();
+  return event;
+}
+
+function formatByteEstimate(bytes) {
+  const value = Math.max(0, Math.round(Number(bytes) || 0));
+  if (value >= 1024 * 1024) return `${trimScaledNumber(value / (1024 * 1024))} MB`;
+  if (value >= 1024) return `${trimScaledNumber(value / 1024)} KB`;
+  return `${value} B`;
+}
+
+function formatRecorderWindow(stats) {
+  const minutes = Math.round((stats.windowMs || 120000) / 60000);
+  const range = stats.timeRange || {};
+  if (!range.start || !range.end) return `${minutes} min`;
+  return `${minutes} min | ${range.start} -> ${range.end}`;
+}
+
+function renderRecorderBoard() {
+  if (!recorderStatusEl && !recorderEventListEl && !recorderBundlePreviewEl) return;
+  const stats = recorderStore.stats();
+  if (recorderStatusEl) recorderStatusEl.textContent = stats.status;
+  if (recorderEventCountEl) recorderEventCountEl.textContent = `${stats.count} events`;
+  if (recorderByteEstimateEl) recorderByteEstimateEl.textContent = formatByteEstimate(stats.byteEstimate);
+  if (recorderTimeWindowEl) recorderTimeWindowEl.textContent = formatRecorderWindow(stats);
+  renderRecorderEventList(recorderStore.list());
+  if (recorderBundlePreviewEl) {
+    recorderBundlePreviewEl.textContent = activeBugBundle ? JSON.stringify(activeBugBundle, null, 2) : '';
+  }
+}
+
+function renderRecorderEventList(events) {
+  if (!recorderEventListEl) return;
+  const rows = events.map((event) => createRecorderEventRow(event));
+  if (typeof recorderEventListEl.replaceChildren === 'function') {
+    recorderEventListEl.replaceChildren(...rows);
+  } else {
+    recorderEventListEl.textContent = '';
+    rows.forEach((row) => recorderEventListEl.appendChild(row));
+  }
+}
+
+function createRecorderEventRow(event) {
+  const row = document.createElement('div');
+  row.className = 'recorder-event-row';
+
+  const title = document.createElement('div');
+  title.className = 'recorder-event-title';
+  title.textContent = formatRecorderEventSummary(event);
+
+  const meta = document.createElement('div');
+  meta.className = 'recorder-event-meta';
+  meta.textContent = [event.id, event.type, event.createdAt, event.evidenceId].filter(Boolean).join(' | ');
+
+  const summary = document.createElement('div');
+  summary.className = 'recorder-event-summary';
+  summary.textContent = event.summary || '';
+
+  row.appendChild(title);
+  row.appendChild(meta);
+  row.appendChild(summary);
+  return row;
+}
+
+function pauseRecorder() {
+  recorderStore.pause();
+  setPageRecorderPaused(true);
+  renderRecorderBoard();
+}
+
+function resumeRecorder() {
+  recorderStore.resume();
+  setPageRecorderPaused(false);
+  startRecorderDrain();
+  renderRecorderBoard();
+}
+
+function clearRecorder() {
+  recorderStore.clear();
+  recorderStore.stop();
+  activeBugBundle = null;
+  clearPageRecorderQueue();
+  renderRecorderBoard();
+}
+
+function currentRecorderPageUrl() {
+  return (typeof window !== 'undefined' && window.__cc_pageUrl) || '';
+}
+
+function currentRecorderPageTitle() {
+  return (typeof window !== 'undefined' && window.__cc_pageTitle) || (pageInfoEl && pageInfoEl.textContent) || '';
+}
+
+function createBugBundleFromRecorder() {
+  if (PanelCore && typeof PanelCore.createBugBundle === 'function') {
+    return PanelCore.createBugBundle({
+      title: currentRecorderPageTitle() ? `Bug report: ${currentRecorderPageTitle()}` : 'Bug report',
+      pageUrl: currentRecorderPageUrl(),
+      pageTitle: currentRecorderPageTitle(),
+      events: recorderStore.list(),
+    });
+  }
+  return {
+    schemaVersion: 1,
+    id: `bug_${Date.now()}`,
+    createdAt: new Date().toISOString(),
+    title: 'Bug report',
+    pageUrl: currentRecorderPageUrl(),
+    pageTitle: currentRecorderPageTitle(),
+    timeRange: {},
+    reproductionSteps: recorderStore.list().map(formatRecorderEventSummary),
+    evidenceIds: [],
+    consoleSummary: [],
+    networkSummary: [],
+    selectors: [],
+    githubIssueMarkdown: '',
+    playwrightDraft: '',
+  };
+}
+
+async function packBugBundle() {
+  await drainPageRecorderEvents();
+  activeBugBundle = createBugBundleFromRecorder();
+  renderRecorderBoard();
+  return activeBugBundle;
+}
+
+async function copyBugBundle() {
+  const bundle = activeBugBundle || await packBugBundle();
+  const text = JSON.stringify(bundle, null, 2);
+  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    await navigator.clipboard.writeText(text);
+    addSystemMessage(t('copied'));
+  }
+  return text;
+}
+
+function initRecorderBoard() {
+  if (recorderPauseBtn) recorderPauseBtn.addEventListener('click', pauseRecorder);
+  if (recorderResumeBtn) recorderResumeBtn.addEventListener('click', resumeRecorder);
+  if (recorderPackBtn) recorderPackBtn.addEventListener('click', packBugBundle);
+  if (recorderCopyBtn) recorderCopyBtn.addEventListener('click', copyBugBundle);
+  if (recorderClearBtn) recorderClearBtn.addEventListener('click', clearRecorder);
+  startRecorderDrain();
+  renderRecorderBoard();
+}
+
+function startRecorderDrain() {
+  if (!isRecorderRecording()) return;
+  injectBugFlightRecorder();
+  if (recorderDrainTimer || typeof setInterval === 'undefined') return;
+  recorderDrainTimer = setInterval(() => {
+    drainPageRecorderEvents();
+  }, RECORDER_DRAIN_INTERVAL_MS);
+}
+
+function stopRecorderDrain() {
+  if (!recorderDrainTimer || typeof clearInterval === 'undefined') return;
+  clearInterval(recorderDrainTimer);
+  recorderDrainTimer = null;
+}
+
+function setPageRecorderPaused(paused) {
+  if (typeof chrome === 'undefined' || !chrome.devtools || !chrome.devtools.inspectedWindow) return;
+  const code = `
+    (function() {
+      if (window.__cc_bugFlightRecorder) {
+        window.__cc_bugFlightRecorder.setPaused(${paused ? 'true' : 'false'});
+      }
+    })()
+  `;
+  try {
+    chrome.devtools.inspectedWindow.eval(code, () => {});
+  } catch {
+    // Page recorder state is best-effort only.
+  }
+  if (paused) stopRecorderDrain();
+}
+
+function clearPageRecorderQueue() {
+  if (typeof chrome === 'undefined' || !chrome.devtools || !chrome.devtools.inspectedWindow) return;
+  const code = `
+    (function() {
+      if (window.__cc_bugFlightRecorder) window.__cc_bugFlightRecorder.clear();
+    })()
+  `;
+  try {
+    chrome.devtools.inspectedWindow.eval(code, () => {});
+  } catch {
+    // Page queue is in-memory and can be left to expire.
+  }
+}
+
+function buildBugFlightRecorderScript() {
+  return `
+    (function() {
+      if (window.__cc_bugFlightRecorder) return 'already-installed';
+
+      var events = [];
+      var paused = false;
+      var inputTimers = typeof WeakMap === 'function' ? new WeakMap() : null;
+      var lastUrl = location.href;
+      var lastTitle = document.title;
+
+      function now() {
+        return new Date().toISOString();
+      }
+
+      function clean(value, max) {
+        return String(value || '').replace(/\\s+/g, ' ').trim().slice(0, max || 240);
+      }
+
+      function cssEscape(value) {
+        if (window.CSS && CSS.escape) return CSS.escape(value);
+        return String(value).replace(/[^a-zA-Z0-9_-]/g, function(ch) { return '\\\\' + ch; });
+      }
+
+      function selectorFor(el) {
+        if (!el || el.nodeType !== 1) return '';
+        var tag = (el.tagName || '').toLowerCase();
+        if (el.id) return '#' + cssEscape(el.id);
+        var testId = el.getAttribute && (el.getAttribute('data-testid') || el.getAttribute('data-test') || el.getAttribute('data-cy'));
+        if (testId) return tag + '[data-testid="' + clean(testId, 80).replace(/"/g, '\\\\"') + '"]';
+        var name = el.getAttribute && el.getAttribute('name');
+        if (name) return tag + '[name="' + clean(name, 80).replace(/"/g, '\\\\"') + '"]';
+        var type = el.getAttribute && el.getAttribute('type');
+        if (type) return tag + '[type="' + clean(type, 40).replace(/"/g, '\\\\"') + '"]';
+        return tag;
+      }
+
+      function isInputLike(el) {
+        if (!el || el.nodeType !== 1) return false;
+        var tag = (el.tagName || '').toLowerCase();
+        return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable || (el.getAttribute && el.getAttribute('role') === 'textbox');
+      }
+
+      function valueOf(el) {
+        if (!el) return '';
+        if ((el.tagName || '').toLowerCase() === 'select') {
+          var selected = el.options && el.selectedIndex >= 0 ? el.options[el.selectedIndex] : null;
+          return selected ? String(selected.textContent || selected.value || '') : String(el.value || '');
+        }
+        if ('value' in el) return String(el.value || '');
+        return String(el.textContent || '');
+      }
+
+      function summaryForValue(value, selector) {
+        var text = String(value || '');
+        var sensitive = /password|passwd|token|secret|key|session|cookie|email/i.test(selector || '')
+          || /[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/i.test(text)
+          || /(?:token|secret|password|session|cookie|api[_-]?key)\\s*[:=]/i.test(text);
+        return { length: text.length, empty: text.length === 0, redacted: sensitive };
+      }
+
+      function push(event) {
+        if (paused) return;
+        events.push(Object.assign({
+          schemaVersion: 1,
+          id: 'page_rec_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8),
+          createdAt: now(),
+          pageUrl: location.href,
+          pageTitle: document.title
+        }, event));
+        while (events.length > 300) events.shift();
+      }
+
+      function onClick(event) {
+        push({ type: 'click', selector: selectorFor(event.target), summary: 'Click ' + selectorFor(event.target) });
+      }
+
+      function onKey(event) {
+        push({ type: 'press', key: clean(event.key || '', 80), summary: 'Press ' + clean(event.key || '', 80) });
+      }
+
+      function onInput(event) {
+        var target = event.target;
+        if (!isInputLike(target)) return;
+        var selector = selectorFor(target);
+        var schedule = function() {
+          push({
+            type: 'input',
+            selector: selector,
+            valueSummary: summaryForValue(valueOf(target), selector),
+            summary: 'Input ' + selector
+          });
+        };
+        if (inputTimers) {
+          var previous = inputTimers.get(target);
+          if (previous) clearTimeout(previous);
+          inputTimers.set(target, setTimeout(schedule, 500));
+        } else {
+          setTimeout(schedule, 500);
+        }
+      }
+
+      function checkRoute() {
+        var nextUrl = location.href;
+        if (nextUrl !== lastUrl) {
+          push({ type: 'route', from: lastUrl, to: nextUrl });
+          lastUrl = nextUrl;
+        }
+      }
+
+      function checkTitle() {
+        var nextTitle = document.title;
+        if (nextTitle !== lastTitle) {
+          push({ type: 'title', from: lastTitle, to: nextTitle });
+          lastTitle = nextTitle;
+        }
+      }
+
+      var originalPushState = history.pushState;
+      var originalReplaceState = history.replaceState;
+      history.pushState = function() {
+        var result = originalPushState.apply(this, arguments);
+        checkRoute();
+        return result;
+      };
+      history.replaceState = function() {
+        var result = originalReplaceState.apply(this, arguments);
+        checkRoute();
+        return result;
+      };
+
+      document.addEventListener('click', onClick, true);
+      document.addEventListener('keydown', onKey, true);
+      document.addEventListener('input', onInput, true);
+      window.addEventListener('popstate', checkRoute, true);
+
+      if (typeof MutationObserver === 'function') {
+        var titleEl = document.querySelector('title');
+        if (titleEl) {
+          new MutationObserver(checkTitle).observe(titleEl, { childList: true, characterData: true, subtree: true });
+        }
+      }
+      setInterval(checkTitle, 1000);
+
+      window.__cc_bugFlightRecorder = {
+        drain: function() {
+          var copy = events.slice();
+          events = [];
+          return copy;
+        },
+        clear: function() {
+          events = [];
+        },
+        setPaused: function(value) {
+          paused = Boolean(value);
+        }
+      };
+      return 'installed';
+    })()
+  `;
+}
+
+function injectBugFlightRecorder() {
+  if (recorderInjected) return Promise.resolve('already-installed');
+  if (typeof chrome === 'undefined' || !chrome.devtools || !chrome.devtools.inspectedWindow) return Promise.resolve(null);
+  recorderInjected = true;
+  return executeInspectedWindowEval(buildBugFlightRecorderScript()).catch(() => null);
+}
+
+function drainPageRecorderEvents() {
+  if (!isRecorderRecording()) return Promise.resolve([]);
+  if (typeof chrome === 'undefined' || !chrome.devtools || !chrome.devtools.inspectedWindow) return Promise.resolve([]);
+  if (!recorderInjected) injectBugFlightRecorder();
+  return executeInspectedWindowEval(`
+    (function() {
+      return window.__cc_bugFlightRecorder ? window.__cc_bugFlightRecorder.drain() : [];
+    })()
+  `).then((events) => {
+    const list = Array.isArray(events) ? events : [];
+    list.forEach((event) => addRecorderEvent(event));
+    return list;
+  }).catch(() => []);
+}
+
+function createGeneratedTestDraftFromEvidence(items) {
+  if (PanelCore && typeof PanelCore.createGeneratedTestDraft === 'function') {
+    return PanelCore.createGeneratedTestDraft({ evidenceItems: items || [], sourceBugBundleId: '' });
+  }
+  return {
+    schemaVersion: 1,
+    id: `testdraft_${Date.now()}`,
+    createdAt: new Date().toISOString(),
+    sourceEvidenceIds: (items || []).filter((item) => item && item.selected).map((item) => item.id),
+    sourceBugBundleId: '',
+    selectorConfidence: [],
+    assertions: [],
+    testCode: "import { test, expect } from '@playwright/test';\n\ntest('generated from cc-devtools evidence', async ({ page }) => {\n  // Add selected evidence actions here.\n});",
+  };
+}
+
+function getActiveGeneratedTestDraft() {
+  return activeGeneratedTestDraft;
+}
+
+function generatedDraftPreviewText(draft) {
+  if (!draft) return '';
+  return draft.testCode || '';
+}
+
+function generatedDraftCopyText(draft) {
+  if (!draft) return '';
+  return JSON.stringify(draft, null, 2);
+}
+
+function selectedEvidenceForTestDraft() {
+  return getSelectedEvidenceItems();
+}
+
+function updateTestsSourceSummary(selected = selectedEvidenceForTestDraft()) {
+  if (!testsSourceSummaryEl) return;
+  testsSourceSummaryEl.textContent = `Selected evidence: ${selected.length}`;
+}
+
+function renderTestsBoard() {
+  const selected = selectedEvidenceForTestDraft();
+  updateTestsSourceSummary(selected);
+  renderSelectorConfidence(activeGeneratedTestDraft ? activeGeneratedTestDraft.selectorConfidence : []);
+  if (testsDraftPreviewEl) {
+    testsDraftPreviewEl.textContent = generatedDraftPreviewText(activeGeneratedTestDraft);
+  }
+}
+
+function renderSelectorConfidence(entries) {
+  if (!testsSelectorConfidenceEl) return;
+  const rows = (Array.isArray(entries) ? entries : []).map((entry) => createSelectorConfidenceRow(entry));
+  if (typeof testsSelectorConfidenceEl.replaceChildren === 'function') {
+    testsSelectorConfidenceEl.replaceChildren(...rows);
+  } else {
+    testsSelectorConfidenceEl.textContent = '';
+    rows.forEach((row) => testsSelectorConfidenceEl.appendChild(row));
+  }
+}
+
+function createSelectorConfidenceRow(entry) {
+  const row = document.createElement('div');
+  row.className = 'tests-selector-row';
+
+  const title = document.createElement('div');
+  title.className = 'tests-selector-title';
+  title.textContent = `${entry.level || 'unknown'} | ${entry.strategy || 'selector'}`;
+
+  const meta = document.createElement('div');
+  meta.className = 'tests-selector-meta';
+  meta.textContent = entry.selector || '';
+
+  const detail = document.createElement('div');
+  detail.className = 'tests-selector-detail';
+  detail.textContent = [entry.reason, entry.fragile ? 'fragile' : '', entry.locator].filter(Boolean).join(' | ');
+
+  row.appendChild(title);
+  row.appendChild(meta);
+  row.appendChild(detail);
+  return row;
+}
+
+function generateTestDraftFromSelectedEvidence() {
+  activeGeneratedTestDraft = createGeneratedTestDraftFromEvidence(selectedEvidenceForTestDraft());
+  renderTestsBoard();
+  return activeGeneratedTestDraft;
+}
+
+async function copyGeneratedTestDraft() {
+  const draft = activeGeneratedTestDraft || generateTestDraftFromSelectedEvidence();
+  const text = generatedDraftCopyText(draft);
+  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    await navigator.clipboard.writeText(text);
+    addSystemMessage(t('copied'));
+  }
+  return text;
+}
+
+function clearGeneratedTestDraft() {
+  activeGeneratedTestDraft = null;
+  renderTestsBoard();
+}
+
+function initTestsBoard() {
+  if (testsGenerateBtn) testsGenerateBtn.addEventListener('click', generateTestDraftFromSelectedEvidence);
+  if (testsCopyBtn) testsCopyBtn.addEventListener('click', copyGeneratedTestDraft);
+  if (testsClearBtn) testsClearBtn.addEventListener('click', clearGeneratedTestDraft);
+  renderTestsBoard();
+}
+
+function evidenceTypeForAction(type) {
+  if (type === 'console') return 'console';
+  if (type === 'network') return 'network';
+  if (type === 'dom' || type === 'dom:all' || type === 'text') return 'dom';
+  if (type === 'project:scan') return 'project';
+  if (type === 'file:list' || type === 'file:read' || type === 'save') return 'file';
+  if (shouldCollectActionEvidence(type)) return 'verification';
+  return 'action';
+}
+
+function recordActionEvidenceItem(action, resultText) {
+  if (!action) return null;
+  return addEvidenceItem({
+    type: evidenceTypeForAction(action.type),
+    severity: /error|failed|not found|declined|blocked/i.test(String(resultText || '')) ? 'warning' : 'info',
+    source: `action:${action.type}`,
+    title: `[ACTION:${action.type}]`,
+    summary: String(resultText || '').split('\n').slice(0, 3).join('\n'),
+    payload: {
+      actionType: action.type,
+      code: action.code,
+      result: resultText,
+    },
+    selected: false,
+    tags: ['action'],
+  });
 }
 
 function connect() {
@@ -495,7 +1502,7 @@ function redactSensitiveText(text) {
     .replace(/\b(authorization:\s*(?:bearer|basic)\s+)[^\s,;]+/gi, '$1[redacted]')
     .replace(/\b(cookie:\s*)[^\n]+/gi, '$1[redacted]')
     .replace(/(["'](?:access_token|id_token|token|auth|authorization|api[_-]?key|key|password|passwd|secret|session|cookie|csrf|jwt)["']\s*:\s*["'])[^"']+/gi, '$1[redacted]')
-    .replace(/\b((?:access_token|id_token|token|api[_-]?key|password|passwd|secret|session|csrf|jwt)\s*[:=]\s*)(["']?)[^\s,"';&]+/gi, '$1$2[redacted]');
+    .replace(/\b((?:access_token|id_token|token|auth|api[_-]?key|key|password|passwd|secret|session|cookie|csrf|jwt)\s*[:=]\s*)(["']?)[^\s,"';&]+/gi, '$1$2[redacted]');
 }
 
 function parseJsonPayload(code) {
@@ -1487,6 +2494,86 @@ function executeStorageRemove(code) {
   `);
 }
 
+function normalizeStorageKeySnapshot(snapshot) {
+  const result = {};
+  for (const area of ['localStorage', 'sessionStorage', 'cookie']) {
+    result[area] = Array.isArray(snapshot && snapshot[area])
+      ? snapshot[area].map((key) => String(key || '')).filter(Boolean)
+      : [];
+  }
+  return result;
+}
+
+function collectStorageKeySnapshot() {
+  if (typeof chrome === 'undefined' || !chrome.devtools || !chrome.devtools.inspectedWindow) {
+    return Promise.resolve(null);
+  }
+
+  return executeInspectedWindowEval(`
+    (function() {
+      function storageKeys(area) {
+        try {
+          var store = window[area];
+          var keys = [];
+          for (var i = 0; i < store.length; i += 1) keys.push(store.key(i));
+          return keys.filter(Boolean);
+        } catch (e) {
+          return [];
+        }
+      }
+
+      function cookieKeys() {
+        try {
+          if (!document.cookie) return [];
+          return document.cookie.split(';').map(function(item) {
+            var key = item.trim().split('=')[0] || '';
+            try { return decodeURIComponent(key); }
+            catch (e) { return key; }
+          }).filter(Boolean);
+        } catch (e) {
+          return [];
+        }
+      }
+
+      return {
+        localStorage: storageKeys('localStorage'),
+        sessionStorage: storageKeys('sessionStorage'),
+        cookie: cookieKeys()
+      };
+    })()
+  `).then((snapshot) => {
+    if (!snapshot || typeof snapshot !== 'object') return null;
+    return normalizeStorageKeySnapshot(snapshot);
+  }).catch(() => null);
+}
+
+function diffStorageKeySnapshots(beforeSnapshot, afterSnapshot) {
+  if (PanelCore && typeof PanelCore.diffStorageKeySnapshots === 'function') {
+    return PanelCore.diffStorageKeySnapshots(beforeSnapshot || {}, afterSnapshot || {});
+  }
+  const before = normalizeStorageKeySnapshot(beforeSnapshot || {});
+  const after = normalizeStorageKeySnapshot(afterSnapshot || {});
+  const result = {};
+  for (const area of ['localStorage', 'sessionStorage', 'cookie']) {
+    const beforeSet = new Set(before[area]);
+    const afterSet = new Set(after[area]);
+    const added = after[area].filter((key) => !beforeSet.has(key));
+    const removed = before[area].filter((key) => !afterSet.has(key));
+    if (added.length || removed.length) result[area] = { added, removed };
+  }
+  return result;
+}
+
+function hasStorageChanges(changes) {
+  if (PanelCore && typeof PanelCore.hasStorageChanges === 'function') {
+    return PanelCore.hasStorageChanges(changes || {});
+  }
+  return ['localStorage', 'sessionStorage', 'cookie'].some((area) => {
+    const change = (changes && changes[area]) || {};
+    return (change.added && change.added.length) || (change.removed && change.removed.length);
+  });
+}
+
 function executeInspectedWindowEval(code) {
   return new Promise((resolve) => {
     chrome.devtools.inspectedWindow.eval(code, (result, isException) => {
@@ -1951,6 +3038,9 @@ function formatMessageText(text) {
 }
 
 function actionPolicy(type, permissionMode = getSelectedPermissionMode()) {
+  if (PanelCore && typeof PanelCore.createTrustPolicy === 'function' && typeof PanelCore.canRunAction === 'function') {
+    return PanelCore.canRunAction(PanelCore.createTrustPolicy(permissionMode), type).decision;
+  }
   if (permissionMode === 'bypassPermissions') return 'allow';
   if (permissionMode === 'plan') {
     return PLAN_ALLOWED_ACTIONS.has(type) ? 'allow' : 'block';
@@ -1966,6 +3056,61 @@ function confirmAction(type, code) {
     return window.confirm(message);
   }
   return false;
+}
+
+function parseInputActionCode(code) {
+  const value = String(code || '');
+  const nl = value.indexOf('\n');
+  return {
+    selector: nl > 0 ? value.substring(0, nl).trim() : value.trim(),
+    value: nl > 0 ? value.substring(nl + 1) : '',
+  };
+}
+
+function shouldRecordActionInRecorder(type) {
+  return ['click', 'input', 'press', 'console', 'network'].includes(type);
+}
+
+function recordActionRecorderEvents(action, resultText, beforeEvidence, afterEvidence, beforeStorage, afterStorage, evidenceItem) {
+  if (!action || !isRecorderRecording()) return;
+  const evidenceId = evidenceItem && evidenceItem.id ? evidenceItem.id : '';
+  const pageUrl = (afterEvidence && afterEvidence.url) || (beforeEvidence && beforeEvidence.url) || currentRecorderPageUrl();
+  const pageTitle = (afterEvidence && afterEvidence.title) || (beforeEvidence && beforeEvidence.title) || currentRecorderPageTitle();
+  const base = {
+    pageUrl,
+    pageTitle,
+    evidenceId,
+    summary: resultText,
+  };
+
+  if (shouldRecordActionInRecorder(action.type)) {
+    if (action.type === 'click') {
+      addRecorderEvent({ ...base, type: 'click', selector: String(action.code || '').trim() });
+    } else if (action.type === 'input') {
+      const parsed = parseInputActionCode(action.code);
+      addRecorderEvent({ ...base, type: 'input', selector: parsed.selector, value: parsed.value });
+    } else if (action.type === 'press') {
+      addRecorderEvent({ ...base, type: 'press', key: String(action.code || '').trim() || 'Enter' });
+    } else if (action.type === 'console') {
+      addRecorderEvent({ ...base, type: 'console' });
+    } else if (action.type === 'network') {
+      addRecorderEvent({ ...base, type: 'network' });
+    }
+  }
+
+  if (beforeEvidence && afterEvidence && beforeEvidence.url && afterEvidence.url && beforeEvidence.url !== afterEvidence.url) {
+    addRecorderEvent({ type: 'route', from: beforeEvidence.url, to: afterEvidence.url, pageUrl: afterEvidence.url, pageTitle, evidenceId });
+  }
+  if (beforeEvidence && afterEvidence && beforeEvidence.title && afterEvidence.title && beforeEvidence.title !== afterEvidence.title) {
+    addRecorderEvent({ type: 'title', from: beforeEvidence.title, to: afterEvidence.title, pageUrl, pageTitle: afterEvidence.title, evidenceId });
+  }
+
+  if (beforeStorage && afterStorage) {
+    const storageChanges = diffStorageKeySnapshots(beforeStorage, afterStorage);
+    if (hasStorageChanges(storageChanges)) {
+      addRecorderEvent({ type: 'storage', storageChanges, pageUrl, pageTitle, evidenceId });
+    }
+  }
 }
 
 async function executeActions(actions) {
@@ -1989,15 +3134,20 @@ async function executeActions(actions) {
     const a = actions[i];
     const policy = actionPolicy(a.type);
     let result;
+    let beforeEvidence = null;
+    let afterEvidence = null;
+    let beforeStorage = null;
+    let afterStorage = null;
     if (policy === 'block') {
       result = t('actionBlockedPlan');
     } else if (policy === 'confirm' && !confirmAction(a.type, a.code)) {
       result = t('actionDeclined');
     } else {
       const wantsEvidence = shouldCollectActionEvidence(a.type);
-      const beforeEvidence = wantsEvidence ? await collectActionEvidence() : null;
+      if (isRecorderRecording()) beforeStorage = await collectStorageKeySnapshot();
+      beforeEvidence = wantsEvidence ? await collectActionEvidence() : null;
       result = await executeAction(a.type, a.code);
-      let afterEvidence = null;
+      if (isRecorderRecording()) afterStorage = await collectStorageKeySnapshot();
       if (wantsEvidence) {
         await waitForActionEvidence();
         afterEvidence = await collectActionEvidence();
@@ -2006,6 +3156,8 @@ async function executeActions(actions) {
     }
     const resultText = redactSensitiveText(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
     const short = truncateText(resultText, actionResultMaxChars(a));
+    const evidenceItem = recordActionEvidenceItem(a, short);
+    recordActionRecorderEvents(a, short, beforeEvidence, afterEvidence, beforeStorage, afterStorage, evidenceItem);
 
     const key = `[${a.type}] ${a.code.substring(0, 50)}`;
     actionResults[key] = short;
@@ -2064,6 +3216,10 @@ function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+initWorkbenchTabs();
+initEvidenceBoard();
+initRecorderBoard();
+initTestsBoard();
 initBridgeTokenControl();
 initActionRoundControl();
 applyLocale();
@@ -2111,6 +3267,7 @@ pageContextBtn.addEventListener('click', () => {
 if (chrome.devtools.network && chrome.devtools.network.onNavigated) {
   chrome.devtools.network.onNavigated.addListener(() => {
     consoleInjected = false;
+    recorderInjected = false;
     window.__cc_consoleLogs = '';
     window.__cc_bodyText = '';
     window.__cc_dom = '';
